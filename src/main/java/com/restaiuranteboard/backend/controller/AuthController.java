@@ -27,18 +27,12 @@ public class AuthController {
     @Autowired private ConfiguracionSistemaRepository configRepo;
     @Autowired private PasswordEncoder passwordEncoder;
 
-    // ==========================================
-    // 1. CHEQUEO INICIAL (Para el Frontend)
-    // ==========================================
     @GetMapping("/check-admin")
     public ResponseEntity<?> checkAdmin() {
         boolean hasAdmin = userRepo.count() > 0;
         return ResponseEntity.ok(Map.of("hasAdmin", hasAdmin));
     }
 
-    // ==========================================
-    // 2. REGISTRO (Admin y Cliente)
-    // ==========================================
     @PostMapping("/enviar-codigo-registro")
     public ResponseEntity<?> enviarCodigo(@RequestBody Map<String, String> request) {
         String email = request.get("email");
@@ -50,7 +44,7 @@ public class AuthController {
         if (config == null) 
             return ResponseEntity.badRequest().body(Map.of("message", "El sistema no ha sido configurado aún."));
 
-        return generarYEnviarCodigo(email, config);
+        return generarYEnviarCodigo(email, config, EmailService.TipoCodigoCorreo.REGISTRO_USUARIO);
     }
 
     @PostMapping("/registrar")
@@ -77,7 +71,7 @@ public class AuthController {
         user.setFullName(data.get("fullName"));
         user.setPhone(data.get("phone"));
         user.setAddress(data.get("address"));
-        user.setFirstLogin(false); // Porque el usuario (Admin o Cliente) acaba de configurar su propia clave
+        user.setFirstLogin(false);
 
         if (userRepo.count() == 0) {
             user.setRole(roleRepo.findByName("ADMIN").get());
@@ -94,9 +88,6 @@ public class AuthController {
         return ResponseEntity.ok(Map.of("message", "Cuenta creada exitosamente."));
     }
 
-    // ==========================================
-    // 3. LOGIN UNIVERSAL (HU-01 a 05 y HU-21)
-    // ==========================================
     @PostMapping("/login")
     public ResponseEntity<?> login(@RequestBody Map<String, String> credentials) {
         String email = credentials.get("email");
@@ -107,8 +98,6 @@ public class AuthController {
             return ResponseEntity.status(401).body(Map.of("message", "El correo electrónico no existe."));
         }
 
-        // Lógica HU-21: Si es empleado y entra por primera vez, no pedimos contraseña real.
-        // Solo verificamos que puso su correo, el Frontend lo mandará a cambiar la clave.
         if (user.isFirstLogin()) {
             return ResponseEntity.ok(Map.of(
                 "email", user.getEmail(), 
@@ -117,7 +106,6 @@ public class AuthController {
             ));
         }
 
-        // Si es un usuario normal (Admin, Cliente o Empleado ya confirmado), verificamos la clave
         if (!passwordEncoder.matches(password, user.getPassword())) {
             return ResponseEntity.status(401).body(Map.of("message", "Contraseña incorrecta."));
         }
@@ -130,9 +118,6 @@ public class AuthController {
         ));
     }
 
-    // ==========================================
-    // 4. CREACIÓN Y CONFIRMACIÓN DE EMPLEADOS (HU-20 y HU-21)
-    // ==========================================
     @PostMapping("/crear-empleado")
     public ResponseEntity<?> crearEmpleado(@RequestBody Map<String, String> data) {
         if (userRepo.existsByEmail(data.get("email"))) return ResponseEntity.badRequest().body(Map.of("message", "Email ya registrado."));
@@ -147,9 +132,8 @@ public class AuthController {
         user.setAddress(data.get("address"));
         user.setRole(roleRepo.findByName(data.get("role")).orElseThrow());
         
-        // Se le asigna una clave aleatoria basura, la cambiará en el primer login
         user.setPassword(passwordEncoder.encode(UUID.randomUUID().toString())); 
-        user.setFirstLogin(true); // HU-21: Marcar para que configure su clave al entrar
+        user.setFirstLogin(true);
 
         userRepo.save(user);
         return ResponseEntity.ok(Map.of("message", "Empleado creado. Debe iniciar sesión con su correo para activar la cuenta."));
@@ -166,7 +150,7 @@ public class AuthController {
         ConfiguracionSistema config = configRepo.findById("GLOBAL_CONFIG").orElse(null);
         if (config == null) return ResponseEntity.internalServerError().body(Map.of("message", "El sistema no está configurado."));
 
-        return generarYEnviarCodigo(email, config);
+        return generarYEnviarCodigo(email, config, EmailService.TipoCodigoCorreo.ACTIVACION_EMPLEADO);
     }
 
     @PostMapping("/confirmar-empleado")
@@ -187,7 +171,7 @@ public class AuthController {
         if (user == null) return ResponseEntity.badRequest().body(Map.of("message", "Usuario no encontrado."));
 
         user.setPassword(passwordEncoder.encode(password));
-        user.setFirstLogin(false); // Cuenta activada
+        user.setFirstLogin(false);
         userRepo.save(user);
 
         vCode.setUsed(true);
@@ -196,9 +180,6 @@ public class AuthController {
         return ResponseEntity.ok(Map.of("message", "Cuenta activada con éxito. Ya puedes ingresar."));
     }
 
-    // ==========================================
-    // 5. RECUPERACIÓN DE CONTRASEÑA
-    // ==========================================
     @PostMapping("/enviar-codigo-recuperacion")
     public ResponseEntity<?> enviarRecuperacion(@RequestBody Map<String, String> request) {
         String email = request.get("email");
@@ -207,7 +188,7 @@ public class AuthController {
         ConfiguracionSistema config = configRepo.findById("GLOBAL_CONFIG").orElse(null);
         if (config == null) return ResponseEntity.internalServerError().body(Map.of("message", "El sistema no está configurado."));
 
-        return generarYEnviarCodigo(email, config);
+        return generarYEnviarCodigo(email, config, EmailService.TipoCodigoCorreo.RECUPERACION_PASSWORD);
     }
 
     @PostMapping("/reset-password")
@@ -232,10 +213,11 @@ public class AuthController {
         return ResponseEntity.ok(Map.of("message", "Contraseña actualizada exitosamente."));
     }
 
-    // ==========================================
-    // MÉTODO AUXILIAR PARA ENVÍO DE CORREOS
-    // ==========================================
-    private ResponseEntity<?> generarYEnviarCodigo(String email, ConfiguracionSistema config) {
+    private ResponseEntity<?> generarYEnviarCodigo(
+            String email,
+            ConfiguracionSistema config,
+            EmailService.TipoCodigoCorreo tipo
+    ) {
         String code = String.format("%06d", new Random().nextInt(999999));
         VerificationCode vCode = new VerificationCode();
         vCode.setEmail(email);
@@ -244,7 +226,14 @@ public class AuthController {
         codeRepo.save(vCode);
 
         try {
-            emailService.enviarCodigoVerificacion(email, code, config.getEmailSmtp(), config.getPasswordSmtp());
+            emailService.enviarCodigoVerificacion(
+                    email,
+                    code,
+                    config.getEmailSmtp(),
+                    config.getPasswordSmtp(),
+                    tipo,
+                    config.getNombreNegocio()
+            );
             return ResponseEntity.ok(Map.of("message", "Código enviado al correo."));
         } catch (Exception e) {
             return ResponseEntity.internalServerError().body(Map.of("message", "Error al enviar el correo."));

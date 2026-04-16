@@ -23,7 +23,6 @@ public class CatalogoController {
     @Autowired private InventoryRepository inventorySqlRepo;
     @Autowired private RecipeRepository recipeSqlRepo;
 
-    // --- GESTIÓN DE INGREDIENTES (SQL) ---
     @GetMapping("/ingredientes")
     public List<Inventory> listarIngredientes() {
         return inventorySqlRepo.findAllByIsDeletedFalse();
@@ -35,7 +34,6 @@ public class CatalogoController {
         return ResponseEntity.ok(Map.of("message", "Ingrediente guardado en SQL"));
     }
 
-    // --- GESTIÓN DE PRODUCTOS (HÍBRIDO) ---
     @GetMapping("/productos")
     public List<Producto> listarProductos() {
         return productoMongoRepo.findByIsDeletedFalse();
@@ -44,11 +42,9 @@ public class CatalogoController {
     @PostMapping("/productos")
     public ResponseEntity<?> guardarProducto(@RequestBody ProductoRequest request) {
         try {
-            // 1. Guardar en MongoDB
             Producto nuevoProducto = productoMongoRepo.save(request.getProducto());
             String mongoId = nuevoProducto.getId();
 
-            // 2. Guardar la Receta en PostgreSQL vinculada al ID de Mongo
             for (ProductoRequest.RecetaItemDTO item : request.getReceta()) {
                 Recipe r = new Recipe();
                 r.setMongoProductId(mongoId);
@@ -65,12 +61,10 @@ public class CatalogoController {
 
     @DeleteMapping("/productos/{id}")
     public ResponseEntity<?> eliminarProducto(@PathVariable String id) {
-        // Soft Delete en Mongo
         Producto p = productoMongoRepo.findById(id).orElseThrow();
         p.setDeleted(true);
         productoMongoRepo.save(p);
 
-        // Soft Delete de sus recetas en SQL
         List<Recipe> recetas = recipeSqlRepo.findByMongoProductId(id);
         recetas.forEach(r -> r.setDeleted(true));
         recipeSqlRepo.saveAll(recetas);

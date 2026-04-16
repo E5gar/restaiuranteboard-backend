@@ -13,13 +13,13 @@ public class Inventory {
     
     private String name;
     private Double stockQuantity;
-    private String unit; // GR, ML, UNIDADES
+    private String unit;
     
-    private String category; // NUEVO: Categoría del ingrediente
-    private Double price;    // NUEVO: Precio del ingrediente
+    private String category;
+    private Double price;
     
     @Column(columnDefinition = "TEXT", name = "image_base64")
-    private String imageBase64; // NUEVO: Foto del ingrediente
+    private String imageBase64;
     
     private boolean isDeleted = false;
 }

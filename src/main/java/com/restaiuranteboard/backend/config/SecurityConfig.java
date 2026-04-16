@@ -16,10 +16,10 @@ public class SecurityConfig {
     @Bean
     public SecurityFilterChain securityFilterChain(HttpSecurity http) throws Exception {
         http
-            .csrf(csrf -> csrf.disable()) // Deshabilitamos CSRF para poder usar Postman/Angular sin tokens por ahora
-            .cors(Customizer.withDefaults()) // Permite las configuraciones de @CrossOrigin de tus controladores
+            .csrf(csrf -> csrf.disable())
+            .cors(Customizer.withDefaults())
             .authorizeHttpRequests(auth -> auth
-                .anyRequest().permitAll() // PERMITIMOS TODO por ahora para que no te bloquee el desarrollo
+                .anyRequest().permitAll()
             );
         
         return http.build();
@@ -27,6 +27,6 @@ public class SecurityConfig {
 
     @Bean
     public PasswordEncoder passwordEncoder() {
-        return new BCryptPasswordEncoder(); // Este bean permitirá a AuthController encriptar las claves
+        return new BCryptPasswordEncoder();
     }
 }

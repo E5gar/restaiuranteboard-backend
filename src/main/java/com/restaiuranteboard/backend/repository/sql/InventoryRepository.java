@@ -6,9 +6,7 @@ import java.util.List;
 
 public interface InventoryRepository extends JpaRepository<Inventory, Integer> {
     
-    // Listar todos los insumos activos en el almacén
     List<Inventory> findAllByIsDeletedFalse();
     
-    // Verificar si ya existe un ingrediente por nombre (para evitar duplicados)
     boolean existsByNameAndIsDeletedFalse(String name);
 }

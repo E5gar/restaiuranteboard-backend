@@ -26,7 +26,6 @@ public class EstadoBaseDatosController {
     public Map<String, String> checkStatus() {
         Map<String, String> status = new LinkedHashMap<>();
 
-        // Verificación PostgreSQL
         try {
             jdbcTemplate.execute("SELECT 1");
             status.put("postgresql", "Conectado");
@@ -34,7 +33,6 @@ public class EstadoBaseDatosController {
             status.put("postgresql", "Error: " + e.getMessage());
         }
 
-        // Verificación MongoDB
         try {
             String dbName = mongoTemplate.getDb().getName();
             status.put("mongodb", "Conectado - DB: " + dbName);

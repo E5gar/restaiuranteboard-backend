@@ -12,7 +12,7 @@ public class Recipe {
     private Integer id;
 
     @Column(name = "mongo_product_id")
-    private String mongoProductId; // El vínculo con MongoDB
+    private String mongoProductId;
 
     @ManyToOne
     @JoinColumn(name = "ingredient_id")

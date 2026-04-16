@@ -14,7 +14,7 @@ public class Producto {
     private Double price;
     private String category;
     private String description;
-    private List<String> imagesBase64; // Lista de fotos en bytes (Base64)
+    private List<String> imagesBase64;
     private boolean active = true;
     private boolean isDeleted = false;
 }
