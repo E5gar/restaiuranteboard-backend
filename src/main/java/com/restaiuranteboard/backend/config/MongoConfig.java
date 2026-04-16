@@ -7,15 +7,17 @@ import com.mongodb.client.MongoClients;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.data.mongodb.core.MongoTemplate;
+import org.springframework.beans.factory.annotation.Value;
 
 @Configuration
 public class MongoConfig {
 
+    @Value("${spring.data.mongodb.uri}")
+    private String mongoUri;
+
     @Bean
     public MongoClient mongoClient() {
-        ConnectionString connectionString = new ConnectionString(
-            "mongodb://user_db:aba76PXAWzfL634w@localhost:27017/restaiuranteboard_nosql?authSource=admin"
-        );
+        ConnectionString connectionString = new ConnectionString(mongoUri);
         MongoClientSettings settings = MongoClientSettings.builder()
             .applyConnectionString(connectionString)
             .build();
