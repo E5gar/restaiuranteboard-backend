@@ -110,6 +110,7 @@ public class AuthController {
             nuevo.setIpAddress(ip);
             return nuevo;
         });
+        limpiarBloqueoExpirado(intentoIp);
 
         if (estaBloqueada(intentoIp)) {
             registrarAuditoriaLogin(emailAudit, ip, userAgent, "BLOCKED", "IP bloqueada temporalmente");
@@ -182,7 +183,15 @@ public class AuthController {
     public ResponseEntity<?> estadoIp(HttpServletRequest request) {
         String ip = obtenerIpCliente(request);
         IpLoginAttempt intentoIp = ipLoginAttemptRepo.findByIpAddress(ip).orElse(null);
-        if (intentoIp == null || !estaBloqueada(intentoIp)) {
+        if (intentoIp == null) {
+            return ResponseEntity.ok(Map.of(
+                    "blocked", false,
+                    "ipAddress", ip,
+                    "remainingSeconds", 0
+            ));
+        }
+        limpiarBloqueoExpirado(intentoIp);
+        if (!estaBloqueada(intentoIp)) {
             return ResponseEntity.ok(Map.of(
                     "blocked", false,
                     "ipAddress", ip,
@@ -374,6 +383,16 @@ public class AuthController {
         String realIp = request.getHeader("X-Real-IP");
         if (realIp != null && !realIp.isBlank()) return realIp.trim();
         return request.getRemoteAddr();
+    }
+
+    private void limpiarBloqueoExpirado(IpLoginAttempt intentoIp) {
+        LocalDateTime blockedUntil = intentoIp.getBlockedUntil();
+        if (blockedUntil == null) return;
+        if (LocalDateTime.now().isBefore(blockedUntil)) return;
+        intentoIp.setFailedAttempts(0);
+        intentoIp.setLastFailedAt(null);
+        intentoIp.setBlockedUntil(null);
+        ipLoginAttemptRepo.save(intentoIp);
     }
 
     private void registrarAuditoriaLogin(
