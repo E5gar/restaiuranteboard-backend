@@ -58,6 +58,15 @@ public class AuthController {
 
     @PostMapping("/registrar")
     public ResponseEntity<?> registrarUsuario(@RequestBody Map<String, String> data) {
+        return registrarUsuarioClienteInterno(data);
+    }
+
+    @PostMapping("/registrar-cliente")
+    public ResponseEntity<?> registrarCliente(@RequestBody Map<String, String> data) {
+        return registrarUsuarioClienteInterno(data);
+    }
+
+    private ResponseEntity<?> registrarUsuarioClienteInterno(Map<String, String> data) {
         String email = data.get("email");
         String codeIn = data.get("codigo");
 
@@ -68,6 +77,17 @@ public class AuthController {
         if (LocalDateTime.now().isAfter(vCode.getExpirationTime()))
             return ResponseEntity.badRequest().body(Map.of("message", "El código ha expirado."));
 
+        String fullName = trimToNull(data.get("fullName"));
+        String dni = trimToNull(data.get("dni"));
+        String phone = trimToNull(data.get("phone"));
+        String address = trimToNull(data.get("address"));
+        if (fullName == null || dni == null || phone == null || address == null) {
+            return ResponseEntity.badRequest().body(Map.of("message", "Todos los campos son obligatorios."));
+        }
+
+        ResponseEntity<?> duplicado = validarDuplicadosUsuario(email, dni, phone, fullName);
+        if (duplicado != null) return duplicado;
+
         String password = data.get("password");
         if (!password.matches("^(?=.*[a-z])(?=.*[A-Z])(?=.*\\d)(?=.*[@!¡¿?#$%/&])[A-Za-z\\d@!¡¿?#$%/&]{8,}$")) {
             return ResponseEntity.badRequest().body(Map.of("message", "La contraseña no cumple los requisitos de seguridad."));
@@ -76,10 +96,10 @@ public class AuthController {
         User user = new User();
         user.setEmail(email);
         user.setPassword(passwordEncoder.encode(password));
-        user.setDni(data.get("dni"));
-        user.setFullName(data.get("fullName"));
-        user.setPhone(data.get("phone"));
-        user.setAddress(data.get("address"));
+        user.setDni(dni);
+        user.setFullName(fullName);
+        user.setPhone(phone);
+        user.setAddress(address);
         user.setFirstLogin(false);
 
         if (userRepo.count() == 0) {
@@ -217,18 +237,8 @@ public class AuthController {
             return ResponseEntity.badRequest().body(Map.of("message", "Todos los campos son obligatorios."));
         }
 
-        if (userRepo.existsByEmailIgnoreCase(email)) {
-            return ResponseEntity.badRequest().body(Map.of("message", "Ya existe un usuario con ese correo electrónico."));
-        }
-        if (userRepo.existsByDni(dni)) {
-            return ResponseEntity.badRequest().body(Map.of("message", "Ya existe un usuario con ese DNI."));
-        }
-        if (userRepo.existsByPhone(phone)) {
-            return ResponseEntity.badRequest().body(Map.of("message", "Ya existe un usuario con ese número de teléfono."));
-        }
-        if (existeNombreCompletoDuplicado(fullName)) {
-            return ResponseEntity.badRequest().body(Map.of("message", "Ya existe un usuario con el mismo nombre y apellidos."));
-        }
+        ResponseEntity<?> duplicado = validarDuplicadosUsuario(email, dni, phone, fullName);
+        if (duplicado != null) return duplicado;
 
         User user = new User();
         user.setEmail(email);
@@ -362,6 +372,22 @@ public class AuthController {
         if (n.isEmpty()) return false;
         return userRepo.findAll().stream()
                 .anyMatch(u -> normalizarNombreCompleto(u.getFullName()).equals(n));
+    }
+
+    private ResponseEntity<?> validarDuplicadosUsuario(String email, String dni, String phone, String fullName) {
+        if (userRepo.existsByEmailIgnoreCase(email)) {
+            return ResponseEntity.badRequest().body(Map.of("message", "Ya existe un usuario con ese correo electrónico."));
+        }
+        if (userRepo.existsByDni(dni)) {
+            return ResponseEntity.badRequest().body(Map.of("message", "Ya existe un usuario con ese DNI."));
+        }
+        if (userRepo.existsByPhone(phone)) {
+            return ResponseEntity.badRequest().body(Map.of("message", "Ya existe un usuario con ese número de teléfono."));
+        }
+        if (existeNombreCompletoDuplicado(fullName)) {
+            return ResponseEntity.badRequest().body(Map.of("message", "Ya existe un usuario con el mismo nombre y apellidos."));
+        }
+        return null;
     }
 
     private static boolean estaBloqueada(IpLoginAttempt intentoIp) {
