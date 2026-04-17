@@ -6,11 +6,15 @@ import com.restaiuranteboard.backend.service.EmailService;
 import com.restaiuranteboard.backend.model.nosql.ConfiguracionSistema;
 import com.restaiuranteboard.backend.repository.nosql.ConfiguracionSistemaRepository;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 import org.springframework.security.crypto.password.PasswordEncoder;
+import jakarta.servlet.http.HttpServletRequest;
 
 import java.time.LocalDateTime;
+import java.time.temporal.ChronoUnit;
+import java.util.Locale;
 import java.util.Map;
 import java.util.Random;
 import java.util.UUID;
@@ -23,9 +27,14 @@ public class AuthController {
     @Autowired private UserRepository userRepo;
     @Autowired private RoleRepository roleRepo;
     @Autowired private VerificationCodeRepository codeRepo;
+    @Autowired private IpLoginAttemptRepository ipLoginAttemptRepo;
+    @Autowired private LoginAuditRepository loginAuditRepo;
     @Autowired private EmailService emailService;
     @Autowired private ConfiguracionSistemaRepository configRepo;
     @Autowired private PasswordEncoder passwordEncoder;
+
+    private static final int MAX_INTENTOS_FALLIDOS = 3;
+    private static final long BLOQUEO_MINUTOS = 60;
 
     @GetMapping("/check-admin")
     public ResponseEntity<?> checkAdmin() {
@@ -89,12 +98,32 @@ public class AuthController {
     }
 
     @PostMapping("/login")
-    public ResponseEntity<?> login(@RequestBody Map<String, String> credentials) {
+    public ResponseEntity<?> login(@RequestBody Map<String, String> credentials, HttpServletRequest request) {
         String email = credentials.get("email");
         String password = credentials.get("password");
+        String ip = obtenerIpCliente(request);
+        String userAgent = request.getHeader("User-Agent");
+        String emailAudit = (email == null || email.isBlank()) ? "(sin-email)" : email.trim();
+
+        IpLoginAttempt intentoIp = ipLoginAttemptRepo.findByIpAddress(ip).orElseGet(() -> {
+            IpLoginAttempt nuevo = new IpLoginAttempt();
+            nuevo.setIpAddress(ip);
+            return nuevo;
+        });
+
+        if (estaBloqueada(intentoIp)) {
+            registrarAuditoriaLogin(emailAudit, ip, userAgent, "BLOCKED", "IP bloqueada temporalmente");
+            return ResponseEntity.status(HttpStatus.LOCKED).body(Map.of(
+                    "message", "Tu IP está bloqueada temporalmente por múltiples intentos fallidos.",
+                    "ipAddress", ip,
+                    "remainingSeconds", segundosRestantes(intentoIp.getBlockedUntil()),
+                    "blocked", true
+            ));
+        }
 
         User user = userRepo.findByEmail(email).orElse(null);
         if (user == null || user.isDeleted()) {
+            registrarAuditoriaLogin(emailAudit, ip, userAgent, "FAILED", "Correo no existe");
             return ResponseEntity.status(401).body(Map.of("message", "El correo electrónico no existe."));
         }
 
@@ -107,8 +136,39 @@ public class AuthController {
         }
 
         if (!passwordEncoder.matches(password, user.getPassword())) {
-            return ResponseEntity.status(401).body(Map.of("message", "Contraseña incorrecta."));
+            int fallidos = (intentoIp.getFailedAttempts() == null ? 0 : intentoIp.getFailedAttempts()) + 1;
+            intentoIp.setFailedAttempts(fallidos);
+            intentoIp.setLastFailedAt(LocalDateTime.now());
+
+            if (fallidos >= MAX_INTENTOS_FALLIDOS) {
+                LocalDateTime bloqueadoHasta = LocalDateTime.now().plusMinutes(BLOQUEO_MINUTOS);
+                intentoIp.setBlockedUntil(bloqueadoHasta);
+                ipLoginAttemptRepo.save(intentoIp);
+                registrarAuditoriaLogin(user.getEmail(), ip, userAgent, "BLOCKED", "3 intentos fallidos");
+                return ResponseEntity.status(HttpStatus.LOCKED).body(Map.of(
+                        "message", "Tu IP ha sido restringida por 1 hora por varios intentos fallidos.",
+                        "ipAddress", ip,
+                        "remainingSeconds", segundosRestantes(bloqueadoHasta),
+                        "failedAttempts", fallidos,
+                        "blocked", true
+                ));
+            }
+
+            ipLoginAttemptRepo.save(intentoIp);
+            registrarAuditoriaLogin(user.getEmail(), ip, userAgent, "FAILED", "Contraseña incorrecta");
+            return ResponseEntity.status(401).body(Map.of(
+                    "message", "Contraseña incorrecta.",
+                    "failedAttempts", fallidos,
+                    "remainingAttempts", MAX_INTENTOS_FALLIDOS - fallidos,
+                    "blocked", false
+            ));
         }
+
+        intentoIp.setFailedAttempts(0);
+        intentoIp.setLastFailedAt(null);
+        intentoIp.setBlockedUntil(null);
+        ipLoginAttemptRepo.save(intentoIp);
+        registrarAuditoriaLogin(user.getEmail(), ip, userAgent, "SUCCESS", null);
 
         return ResponseEntity.ok(Map.of(
             "fullName", user.getFullName(),
@@ -118,18 +178,55 @@ public class AuthController {
         ));
     }
 
+    @GetMapping("/ip-status")
+    public ResponseEntity<?> estadoIp(HttpServletRequest request) {
+        String ip = obtenerIpCliente(request);
+        IpLoginAttempt intentoIp = ipLoginAttemptRepo.findByIpAddress(ip).orElse(null);
+        if (intentoIp == null || !estaBloqueada(intentoIp)) {
+            return ResponseEntity.ok(Map.of(
+                    "blocked", false,
+                    "ipAddress", ip,
+                    "remainingSeconds", 0
+            ));
+        }
+        return ResponseEntity.ok(Map.of(
+                "blocked", true,
+                "ipAddress", ip,
+                "remainingSeconds", segundosRestantes(intentoIp.getBlockedUntil())
+        ));
+    }
+
     @PostMapping("/crear-empleado")
     public ResponseEntity<?> crearEmpleado(@RequestBody Map<String, String> data) {
-        if (userRepo.existsByEmail(data.get("email"))) return ResponseEntity.badRequest().body(Map.of("message", "Email ya registrado."));
-        if (userRepo.existsByDni(data.get("dni"))) return ResponseEntity.badRequest().body(Map.of("message", "DNI ya registrado."));
-        if (userRepo.existsByPhone(data.get("phone"))) return ResponseEntity.badRequest().body(Map.of("message", "Teléfono ya registrado."));
+        String email = trimToNull(data.get("email"));
+        String dni = trimToNull(data.get("dni"));
+        String phone = trimToNull(data.get("phone"));
+        String fullName = trimToNull(data.get("fullName"));
+        String address = trimToNull(data.get("address"));
+
+        if (email == null || dni == null || phone == null || fullName == null || address == null) {
+            return ResponseEntity.badRequest().body(Map.of("message", "Todos los campos son obligatorios."));
+        }
+
+        if (userRepo.existsByEmailIgnoreCase(email)) {
+            return ResponseEntity.badRequest().body(Map.of("message", "Ya existe un usuario con ese correo electrónico."));
+        }
+        if (userRepo.existsByDni(dni)) {
+            return ResponseEntity.badRequest().body(Map.of("message", "Ya existe un usuario con ese DNI."));
+        }
+        if (userRepo.existsByPhone(phone)) {
+            return ResponseEntity.badRequest().body(Map.of("message", "Ya existe un usuario con ese número de teléfono."));
+        }
+        if (existeNombreCompletoDuplicado(fullName)) {
+            return ResponseEntity.badRequest().body(Map.of("message", "Ya existe un usuario con el mismo nombre y apellidos."));
+        }
 
         User user = new User();
-        user.setEmail(data.get("email"));
-        user.setDni(data.get("dni"));
-        user.setFullName(data.get("fullName"));
-        user.setPhone(data.get("phone"));
-        user.setAddress(data.get("address"));
+        user.setEmail(email);
+        user.setDni(dni);
+        user.setFullName(fullName);
+        user.setPhone(phone);
+        user.setAddress(address);
         user.setRole(roleRepo.findByName(data.get("role")).orElseThrow());
         
         user.setPassword(passwordEncoder.encode(UUID.randomUUID().toString())); 
@@ -238,5 +335,60 @@ public class AuthController {
         } catch (Exception e) {
             return ResponseEntity.internalServerError().body(Map.of("message", "Error al enviar el correo."));
         }
+    }
+
+    private static String trimToNull(String s) {
+        if (s == null) return null;
+        String t = s.trim();
+        return t.isEmpty() ? null : t;
+    }
+
+    private static String normalizarNombreCompleto(String s) {
+        if (s == null) return "";
+        return s.trim().replaceAll("\\s+", " ").toLowerCase(Locale.ROOT);
+    }
+
+    private boolean existeNombreCompletoDuplicado(String fullNamePropuesto) {
+        String n = normalizarNombreCompleto(fullNamePropuesto);
+        if (n.isEmpty()) return false;
+        return userRepo.findAll().stream()
+                .anyMatch(u -> normalizarNombreCompleto(u.getFullName()).equals(n));
+    }
+
+    private static boolean estaBloqueada(IpLoginAttempt intentoIp) {
+        LocalDateTime blockedUntil = intentoIp.getBlockedUntil();
+        return blockedUntil != null && LocalDateTime.now().isBefore(blockedUntil);
+    }
+
+    private static long segundosRestantes(LocalDateTime blockedUntil) {
+        if (blockedUntil == null) return 0;
+        long s = ChronoUnit.SECONDS.between(LocalDateTime.now(), blockedUntil);
+        return Math.max(0, s);
+    }
+
+    private static String obtenerIpCliente(HttpServletRequest request) {
+        String forwarded = request.getHeader("X-Forwarded-For");
+        if (forwarded != null && !forwarded.isBlank()) {
+            return forwarded.split(",")[0].trim();
+        }
+        String realIp = request.getHeader("X-Real-IP");
+        if (realIp != null && !realIp.isBlank()) return realIp.trim();
+        return request.getRemoteAddr();
+    }
+
+    private void registrarAuditoriaLogin(
+            String userEmail,
+            String ipAddress,
+            String userAgent,
+            String status,
+            String failureReason
+    ) {
+        LoginAudit audit = new LoginAudit();
+        audit.setUserEmail(userEmail);
+        audit.setIpAddress(ipAddress);
+        audit.setUserAgent(userAgent != null ? userAgent : "");
+        audit.setStatus(status);
+        audit.setFailureReason(failureReason);
+        loginAuditRepo.save(audit);
     }
 }
