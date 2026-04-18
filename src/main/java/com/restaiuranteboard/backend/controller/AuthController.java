@@ -152,7 +152,8 @@ public class AuthController {
             return ResponseEntity.ok(Map.of(
                 "email", user.getEmail(), 
                 "firstLogin", true, 
-                "role", user.getRole().getName()
+                "role", user.getRole().getName(),
+                "darkMode", user.isDarkMode()
             ));
         }
 
@@ -195,8 +196,30 @@ public class AuthController {
             "fullName", user.getFullName(),
             "role", user.getRole().getName(),
             "email", user.getEmail(),
-            "firstLogin", false
+            "firstLogin", false,
+            "darkMode", user.isDarkMode()
         ));
+    }
+
+    @PatchMapping("/dark-mode")
+    public ResponseEntity<?> updateDarkMode(@RequestBody Map<String, Object> body) {
+        Object emailObj = body.get("email");
+        Object darkObj = body.get("darkMode");
+        if (!(emailObj instanceof String) || emailObj == null || ((String) emailObj).isBlank()) {
+            return ResponseEntity.badRequest().body(Map.of("message", "Email requerido."));
+        }
+        if (darkObj == null) {
+            return ResponseEntity.badRequest().body(Map.of("message", "darkMode requerido."));
+        }
+        boolean dark = darkObj instanceof Boolean ? (Boolean) darkObj : Boolean.parseBoolean(String.valueOf(darkObj));
+        String email = ((String) emailObj).trim();
+        User user = userRepo.findByEmail(email).orElse(null);
+        if (user == null || user.isDeleted()) {
+            return ResponseEntity.status(HttpStatus.NOT_FOUND).body(Map.of("message", "Usuario no encontrado."));
+        }
+        user.setDarkMode(dark);
+        userRepo.save(user);
+        return ResponseEntity.ok(Map.of("darkMode", dark));
     }
 
     @GetMapping("/ip-status")

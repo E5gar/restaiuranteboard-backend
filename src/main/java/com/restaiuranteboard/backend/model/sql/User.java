@@ -29,6 +29,9 @@ public class User {
     private String phone;
     private String address;
     private boolean firstLogin = true;
+
+    @Column(name = "dark_mode")
+    private boolean darkMode = false;
     
     private boolean isDeleted = false;
     private LocalDateTime createdAt = LocalDateTime.now();
