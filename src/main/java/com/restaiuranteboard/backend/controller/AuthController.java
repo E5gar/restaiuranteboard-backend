@@ -44,10 +44,17 @@ public class AuthController {
 
     @PostMapping("/enviar-codigo-registro")
     public ResponseEntity<?> enviarCodigo(@RequestBody Map<String, String> request) {
-        String email = request.get("email");
+        String email = trimToNull(request.get("email"));
+        String dni = trimToNull(request.get("dni"));
+        String phone = trimToNull(request.get("phone"));
+        String fullName = trimToNull(request.get("fullName"));
 
-        if (userRepo.existsByEmail(email)) 
-            return ResponseEntity.badRequest().body(Map.of("message", "Este email ya está registrado."));
+        if (email == null) {
+            return ResponseEntity.badRequest().body(Map.of("message", "El correo electrónico es obligatorio."));
+        }
+
+        ResponseEntity<?> duplicado = validarDuplicadosPrevioCodigo(email, dni, phone, fullName);
+        if (duplicado != null) return duplicado;
         
         ConfiguracionSistema config = configRepo.findById("GLOBAL_CONFIG").orElse(null);
         if (config == null) 
@@ -408,6 +415,22 @@ public class AuthController {
             return ResponseEntity.badRequest().body(Map.of("message", "Ya existe un usuario con ese número de teléfono."));
         }
         if (existeNombreCompletoDuplicado(fullName)) {
+            return ResponseEntity.badRequest().body(Map.of("message", "Ya existe un usuario con el mismo nombre y apellidos."));
+        }
+        return null;
+    }
+
+    private ResponseEntity<?> validarDuplicadosPrevioCodigo(String email, String dni, String phone, String fullName) {
+        if (userRepo.existsByEmailIgnoreCase(email)) {
+            return ResponseEntity.badRequest().body(Map.of("message", "Ya existe un usuario con ese correo electrónico."));
+        }
+        if (dni != null && userRepo.existsByDni(dni)) {
+            return ResponseEntity.badRequest().body(Map.of("message", "Ya existe un usuario con ese DNI."));
+        }
+        if (phone != null && userRepo.existsByPhone(phone)) {
+            return ResponseEntity.badRequest().body(Map.of("message", "Ya existe un usuario con ese número de teléfono."));
+        }
+        if (fullName != null && existeNombreCompletoDuplicado(fullName)) {
             return ResponseEntity.badRequest().body(Map.of("message", "Ya existe un usuario con el mismo nombre y apellidos."));
         }
         return null;
