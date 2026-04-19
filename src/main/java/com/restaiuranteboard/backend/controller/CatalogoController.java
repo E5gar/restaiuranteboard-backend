@@ -1,5 +1,6 @@
 package com.restaiuranteboard.backend.controller;
 
+import com.restaiuranteboard.backend.dto.ActualizarIngredienteRequest;
 import com.restaiuranteboard.backend.dto.ProductoRequest;
 import com.restaiuranteboard.backend.model.nosql.Producto;
 import com.restaiuranteboard.backend.model.sql.Inventory;
@@ -8,6 +9,7 @@ import com.restaiuranteboard.backend.model.sql.Recipe;
 import com.restaiuranteboard.backend.repository.nosql.ProductoRepository;
 import com.restaiuranteboard.backend.repository.sql.InventoryMovementRepository;
 import com.restaiuranteboard.backend.repository.sql.InventoryRepository;
+import com.restaiuranteboard.backend.repository.sql.OrderItemRepository;
 import com.restaiuranteboard.backend.repository.sql.RecipeRepository;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.ResponseEntity;
@@ -17,6 +19,8 @@ import org.springframework.web.bind.annotation.*;
 import java.math.BigDecimal;
 import java.math.RoundingMode;
 import java.time.LocalDateTime;
+import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -36,10 +40,24 @@ public class CatalogoController {
 
     private static final Set<String> UNIDADES_INGREDIENTE = Set.of("UNIDADES", "GR", "ML");
 
+    /** Órdenes en curso: no se puede eliminar productos/insumos vinculados hasta que pasen a ENTREGADO o CANCELADO. */
+    private static final Set<String> ESTADOS_ORDEN_BLOQUEAN_ELIMINACION = Set.of(
+            "PENDIENTE_PAGO", "VALIDANDO_PAGO", "PAGO_VALIDADO", "EN_COCINA", "EN_CAMINO"
+    );
+
+    private static final String MSG_NO_ELIMINAR_PRODUCTO_ORDEN =
+            "No es posible eliminar este producto porque aún está en proceso de ser entregado. "
+                    + "Intente nuevamente cuando no haya órdenes pendientes con este producto";
+
+    private static final String MSG_NO_ELIMINAR_INSUMO_ORDEN =
+            "No es posible eliminar este insumo porque pertenece a un producto que aún está en proceso de ser entregado. "
+                    + "Intente nuevamente cuando no haya órdenes pendientes con este insumo";
+
     @Autowired private ProductoRepository productoMongoRepo;
     @Autowired private InventoryRepository inventorySqlRepo;
     @Autowired private RecipeRepository recipeSqlRepo;
     @Autowired private InventoryMovementRepository inventoryMovementRepo;
+    @Autowired private OrderItemRepository orderItemRepo;
 
     @GetMapping("/ingredientes")
     public List<Inventory> listarIngredientes() {
@@ -123,6 +141,180 @@ public class CatalogoController {
         return ResponseEntity.ok(Map.of("message", "Ingrediente guardado en SQL"));
     }
 
+    @PutMapping("/ingredientes/{id}")
+    @Transactional
+    public ResponseEntity<?> actualizarIngrediente(@PathVariable Integer id, @RequestBody ActualizarIngredienteRequest req) {
+        Inventory existente = inventorySqlRepo.findById(id).orElse(null);
+        if (existente == null || existente.isDeleted()) {
+            return ResponseEntity.badRequest().body(Map.of("message", "Insumo no encontrado."));
+        }
+
+        Inventory item = new Inventory();
+        item.setName(req.getName());
+        item.setCategory(req.getCategory());
+        item.setUnit(req.getUnit());
+        item.setStockQuantity(req.getStockQuantity());
+        item.setPrice(req.getPrice());
+        item.setImageBase64(req.getImageBase64());
+
+        ResponseEntity<?> err = validarInventario(item);
+        if (err != null) return err;
+
+        String nombre = item.getName();
+        if (inventorySqlRepo.existsByNameIgnoreCaseAndIsDeletedFalseAndIdNot(nombre, id)) {
+            return ResponseEntity.badRequest().body(Map.of("message", "El nombre de insumo ya existe"));
+        }
+
+        String unidadAnterior = existente.getUnit() != null ? existente.getUnit().trim() : "";
+        String unidadNueva = item.getUnit().trim();
+        if (!unidadAnterior.equalsIgnoreCase(unidadNueva)) {
+            List<String> mongoIds = recipeSqlRepo.findDistinctActiveMongoProductIdsByIngredientId(id);
+            if (!mongoIds.isEmpty() && !Boolean.TRUE.equals(req.getConfirmarCambioUnidad())) {
+                List<String> nombresProductos = new ArrayList<>();
+                for (String mid : mongoIds) {
+                    productoMongoRepo.findById(mid).ifPresent(prod -> {
+                        if (!prod.isDeleted()) {
+                            nombresProductos.add(prod.getName());
+                        }
+                    });
+                }
+                return ResponseEntity.status(409).body(Map.of(
+                        "code", "UNIT_CHANGE_WARNING",
+                        "message",
+                        "Este insumo se usa en recetas activas. Al cambiar la unidad, revisa las cantidades en esas recetas.",
+                        "productos", nombresProductos
+                ));
+            }
+        }
+
+        existente.setName(nombre);
+        existente.setCategory(item.getCategory());
+        existente.setUnit(unidadNueva);
+        existente.setStockQuantity(item.getStockQuantity());
+        existente.setPrice(item.getPrice());
+        existente.setImageBase64(item.getImageBase64());
+        inventorySqlRepo.save(existente);
+
+        return ResponseEntity.ok(Map.of("message", "Insumo actualizado."));
+    }
+
+    @GetMapping("/productos/{id}/edicion")
+    public ResponseEntity<?> obtenerProductoParaEdicion(@PathVariable String id) {
+        Producto p = productoMongoRepo.findById(id).orElse(null);
+        if (p == null || p.isDeleted()) {
+            return ResponseEntity.badRequest().body(Map.of("message", "Producto no encontrado."));
+        }
+        boolean restringido = tieneOrdenBloqueanteParaProducto(id);
+        List<Recipe> lineas = recipeSqlRepo.findByMongoProductIdAndIsDeletedFalse(id);
+        List<Map<String, Object>> receta = new ArrayList<>();
+        for (Recipe r : lineas) {
+            Inventory ing = r.getIngredient();
+            if (ing == null) continue;
+            Map<String, Object> fila = new HashMap<>();
+            fila.put("ingredientId", ing.getId());
+            fila.put("quantity", r.getQuantityToSubtract());
+            fila.put("name", ing.getName());
+            fila.put("unit", ing.getUnit());
+            receta.add(fila);
+        }
+        Map<String, Object> body = new HashMap<>();
+        body.put("producto", p);
+        body.put("receta", receta);
+        body.put("edicionRestringidaPorOrden", restringido);
+        return ResponseEntity.ok(body);
+    }
+
+    @PutMapping("/productos/{id}")
+    @Transactional
+    public ResponseEntity<?> actualizarProducto(@PathVariable String id, @RequestBody ProductoRequest request) {
+        Producto existente = productoMongoRepo.findById(id).orElse(null);
+        if (existente == null || existente.isDeleted()) {
+            return ResponseEntity.badRequest().body(Map.of("message", "Producto no encontrado."));
+        }
+
+        boolean restringido = tieneOrdenBloqueanteParaProducto(id);
+        Producto incoming = request.getProducto();
+        if (incoming == null) {
+            return ResponseEntity.badRequest().body(Map.of("message", "Solicitud inválida."));
+        }
+
+        if (restringido) {
+            if (incoming.getDescription() != null) {
+                existente.setDescription(incoming.getDescription());
+            }
+            if (incoming.getImagesBase64() != null && !incoming.getImagesBase64().isEmpty()) {
+                existente.setImagesBase64(incoming.getImagesBase64());
+            }
+            productoMongoRepo.save(existente);
+            return ResponseEntity.ok(Map.of(
+                    "message",
+                    "Producto actualizado (solo descripción e imágenes; hay pedidos en curso)."
+            ));
+        }
+
+        String nombre = trimToNull(incoming.getName());
+        if (nombre == null) {
+            return ResponseEntity.badRequest().body(Map.of("message", "El nombre del producto es obligatorio."));
+        }
+        if (!nombre.equalsIgnoreCase(existente.getName())
+                && productoMongoRepo.existsByNameIgnoreCaseAndIsDeletedFalseAndIdNot(nombre, id)) {
+            return ResponseEntity.badRequest().body(Map.of("message", "El nombre del producto ya existe"));
+        }
+        incoming.setName(nombre);
+
+        String cat = incoming.getCategory();
+        if (cat == null || !CATEGORIAS_PRODUCTO.contains(cat.trim())) {
+            return ResponseEntity.badRequest().body(Map.of("message", "Categoría de producto no válida."));
+        }
+        incoming.setCategory(cat.trim());
+
+        ResponseEntity<?> precioErr = validarPrecioVenta(incoming.getPrice());
+        if (precioErr != null) return precioErr;
+
+        if (incoming.getImagesBase64() == null || incoming.getImagesBase64().isEmpty()) {
+            return ResponseEntity.badRequest().body(Map.of("message", "Debe incluir al menos una imagen del producto."));
+        }
+
+        if (request.getReceta() == null || request.getReceta().isEmpty()) {
+            return ResponseEntity.badRequest().body(Map.of("message", "La receta debe incluir al menos un insumo."));
+        }
+
+        for (ProductoRequest.RecetaItemDTO item : request.getReceta()) {
+            if (item.getIngredientId() == null || item.getQuantity() == null) {
+                return ResponseEntity.badRequest().body(Map.of("message", "Cada línea de receta requiere insumo y cantidad."));
+            }
+            Inventory ing = inventorySqlRepo.findById(item.getIngredientId()).orElse(null);
+            if (ing == null || ing.isDeleted()) {
+                return ResponseEntity.badRequest().body(Map.of("message", "Insumo inválido en la receta."));
+            }
+            ResponseEntity<?> qErr = validarCantidadReceta(item.getQuantity(), ing.getUnit());
+            if (qErr != null) return qErr;
+        }
+
+        existente.setName(incoming.getName());
+        existente.setCategory(incoming.getCategory());
+        existente.setPrice(incoming.getPrice());
+        existente.setDescription(incoming.getDescription() != null ? incoming.getDescription() : "");
+        existente.setImagesBase64(incoming.getImagesBase64());
+        existente.setActive(true);
+        productoMongoRepo.save(existente);
+
+        List<Recipe> viejas = recipeSqlRepo.findByMongoProductId(id);
+        recipeSqlRepo.deleteAll(viejas);
+
+        for (ProductoRequest.RecetaItemDTO item : request.getReceta()) {
+            Inventory ing = inventorySqlRepo.findById(item.getIngredientId()).orElseThrow();
+            Recipe r = new Recipe();
+            r.setMongoProductId(id);
+            r.setIngredient(ing);
+            r.setQuantityToSubtract(item.getQuantity());
+            r.setDeleted(false);
+            recipeSqlRepo.save(r);
+        }
+
+        return ResponseEntity.ok(Map.of("message", "Producto y receta actualizados."));
+    }
+
     @GetMapping("/productos")
     public List<Producto> listarProductos() {
         return productoMongoRepo.findByIsDeletedFalse();
@@ -190,9 +382,61 @@ public class CatalogoController {
         }
     }
 
+    @GetMapping("/productos/{id}/eliminar-precheck")
+    public ResponseEntity<?> precheckEliminarProducto(@PathVariable String id) {
+        Producto p = productoMongoRepo.findById(id).orElse(null);
+        if (p == null || p.isDeleted()) {
+            return ResponseEntity.badRequest().body(Map.of("allowed", false, "message", "Producto no encontrado."));
+        }
+        if (tieneOrdenBloqueanteParaProducto(id)) {
+            return ResponseEntity.ok(Map.of("allowed", false, "message", MSG_NO_ELIMINAR_PRODUCTO_ORDEN));
+        }
+        return ResponseEntity.ok(Map.of("allowed", true));
+    }
+
+    @GetMapping("/ingredientes/{id}/eliminar-precheck")
+    public ResponseEntity<?> precheckEliminarIngrediente(@PathVariable Integer id) {
+        Inventory inv = inventorySqlRepo.findById(id).orElse(null);
+        if (inv == null || inv.isDeleted()) {
+            return ResponseEntity.badRequest().body(Map.of("allowed", false, "message", "Insumo no encontrado."));
+        }
+        List<String> mongoIds = recipeSqlRepo.findDistinctActiveMongoProductIdsByIngredientId(id);
+        for (String mid : mongoIds) {
+            if (tieneOrdenBloqueanteParaProducto(mid)) {
+                return ResponseEntity.ok(Map.of("allowed", false, "message", MSG_NO_ELIMINAR_INSUMO_ORDEN));
+            }
+        }
+        if (mongoIds.isEmpty()) {
+            return ResponseEntity.ok(Map.of(
+                    "allowed", true,
+                    "requiereAdvertenciaRecetas", false
+            ));
+        }
+        List<String> nombres = new ArrayList<>();
+        for (String mid : mongoIds) {
+            productoMongoRepo.findById(mid).ifPresent(prod -> {
+                if (!prod.isDeleted()) {
+                    nombres.add(prod.getName());
+                }
+            });
+        }
+        return ResponseEntity.ok(Map.of(
+                "allowed", true,
+                "requiereAdvertenciaRecetas", true,
+                "productosAfectados", nombres
+        ));
+    }
+
     @DeleteMapping("/productos/{id}")
+    @Transactional
     public ResponseEntity<?> eliminarProducto(@PathVariable String id) {
-        Producto p = productoMongoRepo.findById(id).orElseThrow();
+        Producto p = productoMongoRepo.findById(id).orElse(null);
+        if (p == null || p.isDeleted()) {
+            return ResponseEntity.badRequest().body(Map.of("message", "Producto no encontrado."));
+        }
+        if (tieneOrdenBloqueanteParaProducto(id)) {
+            return ResponseEntity.status(409).body(Map.of("message", MSG_NO_ELIMINAR_PRODUCTO_ORDEN));
+        }
         p.setDeleted(true);
         productoMongoRepo.save(p);
 
@@ -201,6 +445,44 @@ public class CatalogoController {
         recipeSqlRepo.saveAll(recetas);
 
         return ResponseEntity.ok(Map.of("message", "Producto eliminado lógicamente"));
+    }
+
+    /**
+     * Elimina lógicamente el insumo y, si aplica, los productos Mongo y todas las filas de {@code recipes}
+     * asociadas a esos productos. Los movimientos en {@code inventory_movements} no se modifican.
+     */
+    @DeleteMapping("/ingredientes/{id}")
+    @Transactional
+    public ResponseEntity<?> eliminarIngrediente(@PathVariable Integer id) {
+        Inventory inv = inventorySqlRepo.findById(id).orElse(null);
+        if (inv == null || inv.isDeleted()) {
+            return ResponseEntity.badRequest().body(Map.of("message", "Insumo no encontrado."));
+        }
+        List<String> mongoIds = recipeSqlRepo.findDistinctActiveMongoProductIdsByIngredientId(id);
+        for (String mid : mongoIds) {
+            if (tieneOrdenBloqueanteParaProducto(mid)) {
+                return ResponseEntity.status(409).body(Map.of("message", MSG_NO_ELIMINAR_INSUMO_ORDEN));
+            }
+        }
+
+        inv.setDeleted(true);
+        inventorySqlRepo.save(inv);
+
+        for (String mid : mongoIds) {
+            productoMongoRepo.findById(mid).ifPresent(prod -> {
+                prod.setDeleted(true);
+                productoMongoRepo.save(prod);
+            });
+            List<Recipe> lineas = recipeSqlRepo.findByMongoProductId(mid);
+            lineas.forEach(r -> r.setDeleted(true));
+            recipeSqlRepo.saveAll(lineas);
+        }
+
+        return ResponseEntity.ok(Map.of("message", "Insumo eliminado lógicamente"));
+    }
+
+    private boolean tieneOrdenBloqueanteParaProducto(String mongoProductId) {
+        return orderItemRepo.existsByMongoProductIdAndOrderStatusIn(mongoProductId, ESTADOS_ORDEN_BLOQUEAN_ELIMINACION);
     }
 
     private static String trimToNull(String s) {
@@ -242,6 +524,12 @@ public class CatalogoController {
         }
         ResponseEntity<?> costErr = validarNoNegativoMax2Dec(item.getPrice(), "El costo unitario");
         if (costErr != null) return costErr;
+
+        String foto = trimToNull(item.getImageBase64());
+        if (foto == null) {
+            return ResponseEntity.badRequest().body(Map.of("message", "La foto del insumo es obligatoria."));
+        }
+        item.setImageBase64(foto);
 
         return null;
     }

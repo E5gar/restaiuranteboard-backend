@@ -11,4 +11,6 @@ public interface ProductoRepository extends MongoRepository<Producto, String> {
     List<Producto> findByCategoryAndIsDeletedFalse(String category);
 
     boolean existsByNameIgnoreCaseAndIsDeletedFalse(String name);
+
+    boolean existsByNameIgnoreCaseAndIsDeletedFalseAndIdNot(String name, String id);
 }

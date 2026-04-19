@@ -11,4 +11,6 @@ public interface InventoryRepository extends JpaRepository<Inventory, Integer> {
     boolean existsByNameAndIsDeletedFalse(String name);
 
     boolean existsByNameIgnoreCaseAndIsDeletedFalse(String name);
+
+    boolean existsByNameIgnoreCaseAndIsDeletedFalseAndIdNot(String name, Integer id);
 }
