@@ -42,8 +42,9 @@ public class ShoppingCartService {
     public CarritoResponse obtenerCarrito(String userId) {
         validarUsuarioCliente(userId);
         ShoppingCart cart = getOrCreate(userId);
-        sanitizeAndPersist(cart);
-        return enrich(cart);
+        List<String> removed = sanitizeAndPersist(cart);
+        CarritoResponse base = enrich(cart);
+        return new CarritoResponse(base.items(), removed);
     }
 
     public CarritoResponse agregarUnidad(String userId, String productId) {
@@ -127,7 +128,8 @@ public class ShoppingCartService {
         boolean preciosCambiaron = !cambios.isEmpty() || totalDistinto;
 
         CarritoResponse actualizado = enrich(cart);
-        return new VerificarPreciosResponse(preciosCambiaron, totalAnterior, totalNuevo, cambios, actualizado);
+        return new VerificarPreciosResponse(preciosCambiaron, totalAnterior, totalNuevo, cambios,
+                new CarritoResponse(actualizado.items(), List.of()));
     }
 
     private double safePrice(Double price) {
