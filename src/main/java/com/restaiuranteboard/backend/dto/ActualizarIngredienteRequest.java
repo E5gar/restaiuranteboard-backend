@@ -10,6 +10,5 @@ public class ActualizarIngredienteRequest {
     private Double stockQuantity;
     private Double price;
     private String imageBase64;
-    /** Obligatorio en true tras mostrar la advertencia de cambio de unidad con recetas activas. */
     private Boolean confirmarCambioUnidad;
 }

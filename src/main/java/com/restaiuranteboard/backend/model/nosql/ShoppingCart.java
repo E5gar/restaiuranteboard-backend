@@ -10,7 +10,6 @@ import java.util.List;
 @Data
 @Document(collection = "shopping_carts")
 public class ShoppingCart {
-    /** Mismo valor que el UUID del usuario en SQL (string). */
     @Id
     private String userId;
 

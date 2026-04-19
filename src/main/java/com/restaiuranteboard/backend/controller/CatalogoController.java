@@ -40,7 +40,6 @@ public class CatalogoController {
 
     private static final Set<String> UNIDADES_INGREDIENTE = Set.of("UNIDADES", "GR", "ML");
 
-    /** Órdenes en curso: no se puede eliminar productos/insumos vinculados hasta que pasen a ENTREGADO o CANCELADO. */
     private static final Set<String> ESTADOS_ORDEN_BLOQUEAN_ELIMINACION = Set.of(
             "PENDIENTE_PAGO", "VALIDANDO_PAGO", "PAGO_VALIDADO", "EN_COCINA", "EN_CAMINO"
     );
@@ -64,10 +63,6 @@ public class CatalogoController {
         return inventorySqlRepo.findAllByIsDeletedFalse();
     }
 
-    /**
-     * Aumenta stock del insumo y registra movimiento ABASTECIMIENTO.
-     * Body JSON: quantity (obligatorio), unitCost (opcional), reason (opcional).
-     */
     @PostMapping("/ingredientes/{id}/abastecer")
     @Transactional
     public ResponseEntity<?> abastecerInsumo(@PathVariable Integer id, @RequestBody Map<String, Object> body) {
@@ -366,7 +361,6 @@ public class CatalogoController {
                 try {
                     productoMongoRepo.deleteById(guardado.getId());
                 } catch (Exception ignored) {
-                    /* silencioso */
                 }
             }
             return ResponseEntity.badRequest().body(Map.of("message", e.getMessage()));
@@ -375,7 +369,6 @@ public class CatalogoController {
                 try {
                     productoMongoRepo.deleteById(guardado.getId());
                 } catch (Exception ignored) {
-                    /* silencioso */
                 }
             }
             return ResponseEntity.internalServerError().body(Map.of("message", "Error: " + e.getMessage()));
@@ -447,10 +440,6 @@ public class CatalogoController {
         return ResponseEntity.ok(Map.of("message", "Producto eliminado lógicamente"));
     }
 
-    /**
-     * Elimina lógicamente el insumo y, si aplica, los productos Mongo y todas las filas de {@code recipes}
-     * asociadas a esos productos. Los movimientos en {@code inventory_movements} no se modifican.
-     */
     @DeleteMapping("/ingredientes/{id}")
     @Transactional
     public ResponseEntity<?> eliminarIngrediente(@PathVariable Integer id) {
@@ -534,7 +523,6 @@ public class CatalogoController {
         return null;
     }
 
-    /** stock: si allowIntegerOnly (UNIDADES) → sin decimales; GR/ML → máx. 2 decimales. */
     private ResponseEntity<?> validarStockOCosto(Double value, String unit, boolean esStock) {
         ResponseEntity<?> base = validarNoNegativoMax2Dec(value, esStock ? "El stock inicial" : "El valor");
         if (base != null) return base;
@@ -564,7 +552,6 @@ public class CatalogoController {
         return validarStockOCosto(quantity, unitIngrediente, true);
     }
 
-    /** Cantidad a sumar al stock: estrictamente &gt; 0; mismas reglas de decimales que stock según unidad. */
     private ResponseEntity<?> validarCantidadAbastecimiento(Double quantity, String unitIngrediente) {
         if (quantity == null) {
             return ResponseEntity.badRequest().body(Map.of("message", "La cantidad es obligatoria."));
@@ -579,9 +566,6 @@ public class CatalogoController {
         return BigDecimal.valueOf(v).setScale(2, RoundingMode.HALF_UP);
     }
 
-    /**
-     * Número positivo desde JSON (Number o String). Rechaza e/E en texto.
-     */
     private static Double toPositiveDouble(Object o) {
         Double d = toDoubleLoose(o);
         if (d == null || d <= 0) return null;

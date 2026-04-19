@@ -5,9 +5,6 @@ import lombok.Data;
 
 import java.math.BigDecimal;
 
-/**
- * Línea de pedido vinculada al producto MongoDB ({@code mongo_product_id}).
- */
 @Data
 @Entity
 @Table(name = "order_items")
@@ -27,7 +24,6 @@ public class OrderItem {
     @Column(nullable = false)
     private Integer quantity = 1;
 
-    /** Precio unitario capturado al crear la línea. */
     @Column(name = "price_at_moment", precision = 12, scale = 2, nullable = false)
     private BigDecimal priceAtMoment;
 }

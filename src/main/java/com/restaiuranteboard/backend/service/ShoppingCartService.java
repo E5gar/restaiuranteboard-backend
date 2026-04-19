@@ -31,7 +31,6 @@ public class ShoppingCartService {
 
     public record LoginCartPayload(CarritoResponse cart, List<String> removedItems) {}
 
-    /** Carga carrito, elimina referencias inválidas y devuelve DTO + nombres retirados. */
     public LoginCartPayload loadSanitizeAndEnrich(String userId) {
         ShoppingCart cart = getOrCreate(userId);
         List<String> removed = sanitizeAndPersist(cart);
@@ -162,7 +161,6 @@ public class ShoppingCartService {
         });
     }
 
-    /** Elimina ítems cuyo producto no existe o está borrado; devuelve nombres para avisar al cliente. */
     public List<String> sanitizeAndPersist(ShoppingCart cart) {
         if (cart.getItems() == null) {
             cart.setItems(new ArrayList<>());

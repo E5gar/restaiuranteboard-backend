@@ -7,9 +7,6 @@ import java.math.BigDecimal;
 import java.time.LocalDateTime;
 import java.util.UUID;
 
-/**
- * Pedido en PostgreSQL (tabla {@code orders}).
- */
 @Data
 @Entity
 @Table(name = "orders")
