@@ -98,7 +98,7 @@ public class ShoppingCartService {
     public VerificarPreciosResponse verificarPrecios(VerificarPreciosRequest req) {
         validarUsuarioCliente(req.userId());
         ShoppingCart cart = getOrCreate(req.userId());
-        sanitizeAndPersist(cart);
+        List<String> removed = sanitizeAndPersist(cart);
 
         Map<String, LineaClientePrecio> clientePorProducto = req.lineasCliente() == null
                 ? Map.of()
@@ -128,7 +128,7 @@ public class ShoppingCartService {
 
         CarritoResponse actualizado = enrich(cart);
         return new VerificarPreciosResponse(preciosCambiaron, totalAnterior, totalNuevo, cambios,
-                new CarritoResponse(actualizado.items(), List.of()));
+                new CarritoResponse(actualizado.items(), removed));
     }
 
     private double safePrice(Double price) {
