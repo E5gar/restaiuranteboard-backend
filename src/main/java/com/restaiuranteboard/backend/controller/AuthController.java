@@ -5,6 +5,7 @@ import com.restaiuranteboard.backend.repository.sql.*;
 import com.restaiuranteboard.backend.service.EmailService;
 import com.restaiuranteboard.backend.model.nosql.ConfiguracionSistema;
 import com.restaiuranteboard.backend.repository.nosql.ConfiguracionSistemaRepository;
+import com.restaiuranteboard.backend.service.ShoppingCartService;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
@@ -14,10 +15,7 @@ import jakarta.servlet.http.HttpServletRequest;
 
 import java.time.LocalDateTime;
 import java.time.temporal.ChronoUnit;
-import java.util.Locale;
-import java.util.Map;
-import java.util.Random;
-import java.util.UUID;
+import java.util.*;
 
 @CrossOrigin(origins = "*")
 @RestController
@@ -32,6 +30,7 @@ public class AuthController {
     @Autowired private EmailService emailService;
     @Autowired private ConfiguracionSistemaRepository configRepo;
     @Autowired private PasswordEncoder passwordEncoder;
+    @Autowired private ShoppingCartService shoppingCartService;
 
     private static final int MAX_INTENTOS_FALLIDOS = 3;
     private static final long BLOQUEO_MINUTOS = 60;
@@ -156,12 +155,17 @@ public class AuthController {
         }
 
         if (user.isFirstLogin()) {
-            return ResponseEntity.ok(Map.of(
-                "email", user.getEmail(), 
-                "firstLogin", true, 
-                "role", user.getRole().getName(),
-                "darkMode", user.isDarkMode()
-            ));
+            Map<String, Object> bodyFirst = new LinkedHashMap<>();
+            bodyFirst.put("email", user.getEmail());
+            bodyFirst.put("firstLogin", true);
+            bodyFirst.put("role", user.getRole().getName());
+            bodyFirst.put("darkMode", user.isDarkMode());
+            bodyFirst.put("userId", user.getId().toString());
+            if ("CLIENTE".equals(user.getRole().getName())) {
+                bodyFirst.put("cart", Map.of("items", Collections.emptyList()));
+                bodyFirst.put("removedItems", Collections.emptyList());
+            }
+            return ResponseEntity.ok(bodyFirst);
         }
 
         if (!passwordEncoder.matches(password, user.getPassword())) {
@@ -199,13 +203,22 @@ public class AuthController {
         ipLoginAttemptRepo.save(intentoIp);
         registrarAuditoriaLogin(user.getEmail(), ip, userAgent, "SUCCESS", null);
 
-        return ResponseEntity.ok(Map.of(
-            "fullName", user.getFullName(),
-            "role", user.getRole().getName(),
-            "email", user.getEmail(),
-            "firstLogin", false,
-            "darkMode", user.isDarkMode()
-        ));
+        Map<String, Object> body = new LinkedHashMap<>();
+        body.put("fullName", user.getFullName());
+        body.put("role", user.getRole().getName());
+        body.put("email", user.getEmail());
+        body.put("firstLogin", false);
+        body.put("darkMode", user.isDarkMode());
+        body.put("userId", user.getId().toString());
+        if ("CLIENTE".equals(user.getRole().getName())) {
+            ShoppingCartService.LoginCartPayload payload = shoppingCartService.loadSanitizeAndEnrich(user.getId().toString());
+            body.put("cart", payload.cart());
+            body.put("removedItems", payload.removedItems());
+        } else {
+            body.put("cart", Map.of("items", Collections.emptyList()));
+            body.put("removedItems", Collections.emptyList());
+        }
+        return ResponseEntity.ok(body);
     }
 
     @PatchMapping("/dark-mode")
