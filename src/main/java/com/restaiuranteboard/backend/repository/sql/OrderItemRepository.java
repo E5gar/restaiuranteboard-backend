@@ -6,8 +6,12 @@ import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 
 import java.util.Collection;
+import java.util.List;
+import java.util.UUID;
 
 public interface OrderItemRepository extends JpaRepository<OrderItem, Integer> {
+
+    List<OrderItem> findByRestaurantOrder_Id(UUID orderId);
 
     @Query("""
             SELECT CASE WHEN COUNT(oi) > 0 THEN true ELSE false END

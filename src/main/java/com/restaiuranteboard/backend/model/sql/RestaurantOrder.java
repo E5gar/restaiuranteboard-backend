@@ -31,4 +31,11 @@ public class RestaurantOrder {
 
     @Column(name = "created_at", nullable = false, updatable = false)
     private LocalDateTime createdAt = LocalDateTime.now();
+
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "processed_by", columnDefinition = "uuid")
+    private User processedBy;
+
+    @Column(name = "processed_at")
+    private LocalDateTime processedAt;
 }

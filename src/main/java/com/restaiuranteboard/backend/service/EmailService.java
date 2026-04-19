@@ -79,4 +79,32 @@ public class EmailService {
 
         mailSender.send(message);
     }
+
+    public void enviarCorreoTextoPlano(
+            String destino,
+            String asunto,
+            String cuerpo,
+            String emisor,
+            String passwordSmtp
+    ) {
+        if (destino == null || destino.isBlank() || emisor == null || emisor.isBlank()
+                || passwordSmtp == null || passwordSmtp.isBlank()) {
+            return;
+        }
+        JavaMailSenderImpl mailSender = new JavaMailSenderImpl();
+        mailSender.setHost("smtp.gmail.com");
+        mailSender.setPort(587);
+        mailSender.setUsername(emisor);
+        mailSender.setPassword(passwordSmtp);
+        java.util.Properties props = mailSender.getJavaMailProperties();
+        props.put("mail.transport.protocol", "smtp");
+        props.put("mail.smtp.auth", "true");
+        props.put("mail.smtp.starttls.enable", "true");
+        SimpleMailMessage message = new SimpleMailMessage();
+        message.setFrom(emisor);
+        message.setTo(destino);
+        message.setSubject(asunto);
+        message.setText(cuerpo);
+        mailSender.send(message);
+    }
 }
