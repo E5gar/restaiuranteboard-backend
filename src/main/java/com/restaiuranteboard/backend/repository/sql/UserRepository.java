@@ -2,8 +2,10 @@ package com.restaiuranteboard.backend.repository.sql;
 
 import com.restaiuranteboard.backend.model.sql.User;
 import org.springframework.data.jpa.repository.JpaRepository;
-import java.util.UUID;
+
+import java.util.List;
 import java.util.Optional;
+import java.util.UUID;
 
 public interface UserRepository extends JpaRepository<User, UUID> {
     boolean existsByEmail(String email);
@@ -11,4 +13,5 @@ public interface UserRepository extends JpaRepository<User, UUID> {
     boolean existsByDni(String dni);
     Optional<User> findByEmail(String email);
     boolean existsByPhone(String phone);
+    List<User> findByRole_NameAndIsDeletedFalse(String roleName);
 }

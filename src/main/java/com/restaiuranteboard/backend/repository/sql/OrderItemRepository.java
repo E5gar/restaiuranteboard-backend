@@ -13,6 +13,8 @@ public interface OrderItemRepository extends JpaRepository<OrderItem, Integer> {
 
     List<OrderItem> findByRestaurantOrder_Id(UUID orderId);
 
+    List<OrderItem> findByRestaurantOrder_IdIn(Collection<UUID> orderIds);
+
     @Query("""
             SELECT CASE WHEN COUNT(oi) > 0 THEN true ELSE false END
             FROM OrderItem oi
