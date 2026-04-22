@@ -38,4 +38,20 @@ public class RestaurantOrder {
 
     @Column(name = "processed_at")
     private LocalDateTime processedAt;
+
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "delivery_person_id", columnDefinition = "uuid")
+    private User deliveryPerson;
+
+    @Column(name = "delivery_assigned_at")
+    private LocalDateTime deliveryAssignedAt;
+
+    @Column(name = "delivery_proof_image", columnDefinition = "bytea")
+    private byte[] deliveryProofImage;
+
+    @Column(name = "delivered_at")
+    private LocalDateTime deliveredAt;
+
+    @Column(name = "cancel_reason", length = 500)
+    private String cancelReason;
 }

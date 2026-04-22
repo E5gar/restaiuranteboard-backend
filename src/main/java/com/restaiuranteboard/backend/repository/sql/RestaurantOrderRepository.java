@@ -12,4 +12,10 @@ public interface RestaurantOrderRepository extends JpaRepository<RestaurantOrder
     List<RestaurantOrder> findByStatusOrderByCreatedAtDesc(String status);
 
     List<RestaurantOrder> findByStatusInOrderByCreatedAtAsc(Collection<String> statuses);
+
+    List<RestaurantOrder> findByStatusInAndDeliveryPerson_IdOrderByCreatedAtAsc(Collection<String> statuses, UUID deliveryPersonId);
+
+    List<RestaurantOrder> findByClient_IdAndStatusNotInOrderByCreatedAtDesc(UUID clientId, Collection<String> statuses);
+
+    List<RestaurantOrder> findByClient_IdOrderByCreatedAtDesc(UUID clientId);
 }

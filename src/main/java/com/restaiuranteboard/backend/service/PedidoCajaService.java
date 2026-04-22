@@ -142,6 +142,7 @@ public class PedidoCajaService {
             throw new IllegalArgumentException("Este pedido no puede rechazarse en su estado actual.");
         }
         o.setStatus("CANCELADO");
+        o.setCancelReason(motivo.trim());
         o.setProcessedBy(processor);
         o.setProcessedAt(LocalDateTime.now());
         orderRepository.save(o);

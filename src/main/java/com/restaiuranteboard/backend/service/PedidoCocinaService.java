@@ -105,6 +105,7 @@ public class PedidoCocinaService {
             throw new IllegalArgumentException("Solo puedes mover a Listos pedidos en preparación.");
         }
         order.setStatus(EST_LISTO);
+        order.setProcessedAt(LocalDateTime.now());
         orderRepository.save(order);
         enviarCorreoRepartidores(order.getId().toString());
     }
