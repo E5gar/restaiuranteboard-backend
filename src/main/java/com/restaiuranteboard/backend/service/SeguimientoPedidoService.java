@@ -56,6 +56,7 @@ public class SeguimientoPedidoService {
         if (order.getDeliveryPerson() != null && order.getDeliveryPerson().getFullName() != null) {
             repartidor = order.getDeliveryPerson().getFullName().trim();
         }
+        boolean rated = Boolean.TRUE.equals(order.getIsRated());
         return new SeguimientoPedidoResponse(
                 order.getId().toString(),
                 order.getStatus(),
@@ -63,6 +64,7 @@ public class SeguimientoPedidoService {
                 order.getTotalPrice() == null ? "0.00" : order.getTotalPrice().setScale(2, RoundingMode.HALF_UP).toPlainString(),
                 order.getCancelReason() == null ? "" : order.getCancelReason(),
                 repartidor,
+                rated,
                 lineas
         );
     }

@@ -54,4 +54,7 @@ public class RestaurantOrder {
 
     @Column(name = "cancel_reason", length = 500)
     private String cancelReason;
+
+    @Column(name = "is_rated", nullable = false)
+    private Boolean isRated = false;
 }

@@ -9,5 +9,6 @@ public record SeguimientoPedidoResponse(
         String total,
         String cancelReason,
         String repartidorNombre,
+        boolean isRated,
         List<CajaLineaDetalle> lineas
 ) {}
