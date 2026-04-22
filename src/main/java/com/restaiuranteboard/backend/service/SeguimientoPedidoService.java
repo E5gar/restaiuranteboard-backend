@@ -1,6 +1,7 @@
 package com.restaiuranteboard.backend.service;
 
 import com.restaiuranteboard.backend.dto.CajaLineaDetalle;
+import com.restaiuranteboard.backend.dto.SeguimientoPedidoListasResponse;
 import com.restaiuranteboard.backend.dto.SeguimientoPedidoResponse;
 import com.restaiuranteboard.backend.model.nosql.Producto;
 import com.restaiuranteboard.backend.model.sql.OrderItem;
@@ -18,12 +19,16 @@ import java.math.BigDecimal;
 import java.math.RoundingMode;
 import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
 import java.util.UUID;
 
 @Service
 public class SeguimientoPedidoService {
+
+    private static final List<String> FINALIZADOS = List.of("ENTREGADO", "CANCELADO");
 
     @Autowired
     private UserRepository userRepository;
@@ -35,23 +40,50 @@ public class SeguimientoPedidoService {
     private ProductoRepository productoRepository;
 
     @Transactional(readOnly = true)
-    public SeguimientoPedidoResponse obtenerPedidoActual(UUID userId) {
+    public SeguimientoPedidoListasResponse listar(UUID userId) {
         User u = requerirCliente(userId);
-        List<RestaurantOrder> activos = orderRepository.findByClient_IdAndStatusNotInOrderByCreatedAtDesc(
-                u.getId(), List.of("ENTREGADO", "CANCELADO"));
-        RestaurantOrder order = null;
-        if (!activos.isEmpty()) {
-            order = activos.get(0);
-        } else {
-            List<RestaurantOrder> all = orderRepository.findByClient_IdOrderByCreatedAtDesc(u.getId());
-            if (!all.isEmpty()) {
-                order = all.get(0);
-            }
+        List<RestaurantOrder> pend = orderRepository.loadSeguimientoPendientes(u.getId(), FINALIZADOS);
+        List<RestaurantOrder> fin = orderRepository.loadSeguimientoFinalizados(u.getId(), FINALIZADOS);
+        Map<UUID, List<OrderItem>> byOrder = cargarItemsPorPedido(pend, fin);
+        List<SeguimientoPedidoResponse> pRes = pend.stream().map(o -> toResponse(o, byOrder)).toList();
+        List<SeguimientoPedidoResponse> fRes = fin.stream().map(o -> toResponse(o, byOrder)).toList();
+        return new SeguimientoPedidoListasResponse(pRes, fRes);
+    }
+
+    @Transactional(readOnly = true)
+    public SeguimientoPedidoResponse obtenerPedidoActual(UUID userId) {
+        SeguimientoPedidoListasResponse r = listar(userId);
+        if (!r.pendientes().isEmpty()) {
+            return r.pendientes().get(0);
         }
-        if (order == null) {
-            throw new IllegalArgumentException("No tienes pedidos registrados.");
+        if (!r.finalizados().isEmpty()) {
+            return r.finalizados().get(0);
         }
-        List<CajaLineaDetalle> lineas = mapLineas(orderItemRepository.findByRestaurantOrder_Id(order.getId()));
+        throw new IllegalArgumentException("No tienes pedidos registrados.");
+    }
+
+    private Map<UUID, List<OrderItem>> cargarItemsPorPedido(List<RestaurantOrder> pend, List<RestaurantOrder> fin) {
+        List<UUID> allIds = new ArrayList<>();
+        for (RestaurantOrder o : pend) {
+            allIds.add(o.getId());
+        }
+        for (RestaurantOrder o : fin) {
+            allIds.add(o.getId());
+        }
+        Map<UUID, List<OrderItem>> byOrder = new HashMap<>();
+        if (allIds.isEmpty()) {
+            return byOrder;
+        }
+        for (OrderItem oi : orderItemRepository.findByRestaurantOrder_IdIn(allIds)) {
+            UUID oid = oi.getRestaurantOrder().getId();
+            byOrder.computeIfAbsent(oid, k -> new ArrayList<>()).add(oi);
+        }
+        return byOrder;
+    }
+
+    private SeguimientoPedidoResponse toResponse(RestaurantOrder order, Map<UUID, List<OrderItem>> byOrder) {
+        List<OrderItem> items = byOrder.getOrDefault(order.getId(), List.of());
+        List<CajaLineaDetalle> lineas = mapLineas(items);
         String repartidor = "";
         if (order.getDeliveryPerson() != null && order.getDeliveryPerson().getFullName() != null) {
             repartidor = order.getDeliveryPerson().getFullName().trim();

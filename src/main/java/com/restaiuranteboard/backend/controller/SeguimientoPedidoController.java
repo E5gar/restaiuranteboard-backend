@@ -1,5 +1,6 @@
 package com.restaiuranteboard.backend.controller;
 
+import com.restaiuranteboard.backend.dto.SeguimientoPedidoListasResponse;
 import com.restaiuranteboard.backend.dto.SeguimientoPedidoResponse;
 import com.restaiuranteboard.backend.service.SeguimientoPedidoService;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -22,6 +23,18 @@ public class SeguimientoPedidoController {
     public ResponseEntity<?> actual(@RequestParam("userId") String userId) {
         try {
             SeguimientoPedidoResponse r = seguimientoPedidoService.obtenerPedidoActual(UUID.fromString(userId));
+            return ResponseEntity.ok(r);
+        } catch (IllegalArgumentException e) {
+            return ResponseEntity.status(HttpStatus.BAD_REQUEST).body(Map.of("message", e.getMessage()));
+        } catch (Exception e) {
+            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).body(Map.of("message", "No se pudo cargar el seguimiento."));
+        }
+    }
+
+    @GetMapping("/listas")
+    public ResponseEntity<?> listas(@RequestParam("userId") String userId) {
+        try {
+            SeguimientoPedidoListasResponse r = seguimientoPedidoService.listar(UUID.fromString(userId));
             return ResponseEntity.ok(r);
         } catch (IllegalArgumentException e) {
             return ResponseEntity.status(HttpStatus.BAD_REQUEST).body(Map.of("message", e.getMessage()));
