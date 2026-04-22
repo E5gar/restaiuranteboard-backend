@@ -90,7 +90,7 @@ public class CatalogoController {
             if (parsed == null) {
                 return ResponseEntity.badRequest().body(Map.of("message", "Costo unitario de compra inválido."));
             }
-            ResponseEntity<?> costErr = validarNoNegativoMax2Dec(parsed, "El costo unitario de compra");
+            ResponseEntity<?> costErr = validarNoNegativoMax3Dec(parsed, "El costo unitario de compra");
             if (costErr != null) return costErr;
             unitCost = parsed;
         }
@@ -108,7 +108,7 @@ public class CatalogoController {
         m.setQuantity(scale2(qty));
         m.setPreviousStock(scale2(prev));
         m.setNewStock(scale2(newStock));
-        m.setUnitCost(unitCost != null ? scale2(unitCost) : null);
+        m.setUnitCost(unitCost != null ? scale3(unitCost) : null);
         m.setMovementType("ABASTECIMIENTO");
         m.setReason(reason);
         m.setCreatedAt(LocalDateTime.now());
@@ -511,7 +511,7 @@ public class CatalogoController {
         if (item.getPrice() == null) {
             return ResponseEntity.badRequest().body(Map.of("message", "El costo unitario es obligatorio."));
         }
-        ResponseEntity<?> costErr = validarNoNegativoMax2Dec(item.getPrice(), "El costo unitario");
+        ResponseEntity<?> costErr = validarNoNegativoMax3Dec(item.getPrice(), "El costo unitario");
         if (costErr != null) return costErr;
 
         String foto = trimToNull(item.getImageBase64());
@@ -566,6 +566,10 @@ public class CatalogoController {
         return BigDecimal.valueOf(v).setScale(2, RoundingMode.HALF_UP);
     }
 
+    private static BigDecimal scale3(double v) {
+        return BigDecimal.valueOf(v).setScale(3, RoundingMode.HALF_UP);
+    }
+
     private static Double toPositiveDouble(Object o) {
         Double d = toDoubleLoose(o);
         if (d == null || d <= 0) return null;
@@ -604,6 +608,19 @@ public class CatalogoController {
         }
         if (!maxDosDecimales(value)) {
             return ResponseEntity.badRequest().body(Map.of("message", campo + " admite como máximo dos decimales."));
+        }
+        return null;
+    }
+
+    private ResponseEntity<?> validarNoNegativoMax3Dec(Double value, String campo) {
+        if (value < 0 || Double.isNaN(value) || Double.isInfinite(value)) {
+            return ResponseEntity.badRequest().body(Map.of("message", campo + " no puede ser negativo."));
+        }
+        BigDecimal redondeado = BigDecimal.valueOf(value).setScale(3, RoundingMode.HALF_UP);
+        boolean max3Dec = BigDecimal.valueOf(value).subtract(redondeado).abs().compareTo(new BigDecimal("0.0000001")) <= 0;
+        
+        if (!max3Dec) {
+            return ResponseEntity.badRequest().body(Map.of("message", campo + " admite como máximo tres decimales."));
         }
         return null;
     }

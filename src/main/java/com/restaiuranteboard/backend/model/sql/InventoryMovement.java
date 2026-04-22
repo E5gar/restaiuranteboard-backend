@@ -27,7 +27,7 @@ public class InventoryMovement {
     @Column(name = "new_stock", nullable = false, precision = 10, scale = 2)
     private BigDecimal newStock;
 
-    @Column(name = "unit_cost", precision = 10, scale = 2)
+    @Column(name = "unit_cost", precision = 10, scale = 3)
     private BigDecimal unitCost;
 
     @Column(name = "movement_type", nullable = false, length = 50)
