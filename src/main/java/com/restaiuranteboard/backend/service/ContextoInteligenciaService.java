@@ -1,15 +1,10 @@
 package com.restaiuranteboard.backend.service;
 
-import com.fasterxml.jackson.databind.JsonNode;
-import com.fasterxml.jackson.databind.ObjectMapper;
 import org.springframework.stereotype.Service;
-
-import java.net.URI;
-import java.net.http.HttpClient;
-import java.net.http.HttpRequest;
-import java.net.http.HttpResponse;
+import org.springframework.web.client.RestTemplate;
 import java.time.DayOfWeek;
 import java.time.LocalDateTime;
+import java.util.Map;
 
 @Service
 public class ContextoInteligenciaService {
@@ -24,29 +19,29 @@ public class ContextoInteligenciaService {
     private static final String OPEN_METEO_URL =
             "https://api.open-meteo.com/v1/forecast?latitude=-12.0686&longitude=-75.2102&current_weather=true";
 
-    private final HttpClient httpClient = HttpClient.newHttpClient();
-    private final ObjectMapper objectMapper = new ObjectMapper();
-
     public ContextoInteligencia contextoActual() {
         LocalDateTime now = LocalDateTime.now();
         Double temp = null;
         String condition = "DESCONOCIDO";
+
         try {
-            HttpRequest req = HttpRequest.newBuilder(URI.create(OPEN_METEO_URL)).GET().build();
-            HttpResponse<String> res = httpClient.send(req, HttpResponse.BodyHandlers.ofString());
-            if (res.statusCode() >= 200 && res.statusCode() < 300) {
-                JsonNode root = objectMapper.readTree(res.body());
-                JsonNode cw = root.path("current_weather");
-                if (!cw.isMissingNode()) {
-                    if (cw.has("temperature") && cw.get("temperature").isNumber()) {
-                        temp = cw.get("temperature").asDouble();
-                    }
-                    int weatherCode = cw.path("weathercode").asInt(-1);
-                    condition = mapWeatherCode(weatherCode);
+            RestTemplate restTemplate = new RestTemplate();
+            Map<String, Object> response = restTemplate.getForObject(OPEN_METEO_URL, Map.class);
+            
+            if (response != null && response.containsKey("current_weather")) {
+                Map<String, Object> cw = (Map<String, Object>) response.get("current_weather");
+                
+                if (cw.get("temperature") != null) {
+                    temp = Double.valueOf(cw.get("temperature").toString());
                 }
+                
+                int weatherCode = cw.get("weathercode") != null ? (int) cw.get("weathercode") : -1;
+                condition = mapWeatherCode(weatherCode);
             }
-        } catch (Exception ignored) {
+        } catch (Exception e) {
+            System.err.println("Error consultando clima: " + e.getMessage());
         }
+
         return new ContextoInteligencia(
                 temp,
                 condition,
