@@ -66,4 +66,7 @@ public class RestaurantOrder {
 
     @Column(name = "moment_of_day", length = 20)
     private String momentOfDay;
+
+    @Column(name = "day_of_week", length = 20)
+    private String dayOfWeek;
 }

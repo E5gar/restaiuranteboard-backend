@@ -103,6 +103,7 @@ public class PedidoService {
         order.setWeatherTempC(ctx.temp());
         order.setWeatherCondition(ctx.condition());
         order.setMomentOfDay(ctx.segment());
+        order.setDayOfWeek(ctx.day());
         RestaurantOrder guardado = restaurantOrderRepository.save(order);
 
         for (OrderItem oi : lineasPendientes) {
