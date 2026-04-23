@@ -29,6 +29,9 @@ public class ShoppingCartService {
     @Autowired
     private UserRepository userRepository;
 
+    @Autowired
+    private UserInteractionService userInteractionService;
+
     public record LoginCartPayload(CarritoResponse cart, List<String> removedItems) {}
 
     public LoginCartPayload loadSanitizeAndEnrich(String userId) {
@@ -57,11 +60,13 @@ public class ShoppingCartService {
         CartItemMongo line = findLine(cart, productId);
         if (line == null) {
             cart.getItems().add(new CartItemMongo(productId, 1));
+            registrarInteraccionSeguro(userId, productId, "ADD_TO_CART", null);
         } else {
             if (line.getQuantity() >= MAX_QTY) {
                 return enrich(cart);
             }
             line.setQuantity(line.getQuantity() + 1);
+            registrarInteraccionSeguro(userId, productId, "INCREMENT_QUANTITY", null);
         }
         shoppingCartRepository.save(cart);
         return enrich(cart);
@@ -80,8 +85,10 @@ public class ShoppingCartService {
         }
         if (line.getQuantity() <= 1) {
             cart.getItems().removeIf(i -> productId.equals(i.getProductId()));
+            registrarInteraccionSeguro(userId, productId, "REMOVE_FROM_CART", null);
         } else {
             line.setQuantity(line.getQuantity() - 1);
+            registrarInteraccionSeguro(userId, productId, "DECREMENT_QUANTITY", null);
         }
         shoppingCartRepository.save(cart);
         return enrich(cart);
@@ -91,6 +98,7 @@ public class ShoppingCartService {
         validarUsuarioCliente(userId);
         ShoppingCart cart = getOrCreate(userId);
         cart.getItems().removeIf(i -> productId.equals(i.getProductId()));
+        registrarInteraccionSeguro(userId, productId, "REMOVE_FROM_CART", null);
         shoppingCartRepository.save(cart);
         return enrich(cart);
     }
@@ -220,5 +228,12 @@ public class ShoppingCartService {
             }
         }
         return null;
+    }
+
+    private void registrarInteraccionSeguro(String userId, String productId, String action, Integer dwellTimeSeconds) {
+        try {
+            userInteractionService.registrar(userId, productId, action, dwellTimeSeconds);
+        } catch (Exception ignored) {
+        }
     }
 }

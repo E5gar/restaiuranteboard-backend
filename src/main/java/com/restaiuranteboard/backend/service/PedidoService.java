@@ -42,6 +42,12 @@ public class PedidoService {
     @Autowired
     private OrderItemRepository orderItemRepository;
 
+    @Autowired
+    private ContextoInteligenciaService contextoInteligenciaService;
+
+    @Autowired
+    private UserInteractionService userInteractionService;
+
     @Transactional
     public Map<String, Object> crearPedidoConComprobante(UUID clientId, byte[] comprobanteBytes, String contentType) {
         validarComprobante(comprobanteBytes, contentType);
@@ -62,6 +68,7 @@ public class PedidoService {
         if (cart.getItems() == null || cart.getItems().isEmpty()) {
             throw new IllegalArgumentException("Tu carrito está vacío o los productos ya no están disponibles.");
         }
+        registrarInteraccionesCheckout(userIdStr, cart.getItems(), "CHECKOUT_START");
 
         BigDecimal total = BigDecimal.ZERO.setScale(2, RoundingMode.HALF_UP);
         List<OrderItem> lineasPendientes = new ArrayList<>();
@@ -88,16 +95,21 @@ public class PedidoService {
         }
 
         RestaurantOrder order = new RestaurantOrder();
+        ContextoInteligenciaService.ContextoInteligencia ctx = contextoInteligenciaService.contextoActual();
         order.setClient(client);
         order.setStatus("VALIDANDO_PAGO");
         order.setTotalPrice(total);
         order.setPaymentReceiptImage(comprobanteBytes);
+        order.setWeatherTempC(ctx.temp());
+        order.setWeatherCondition(ctx.condition());
+        order.setMomentOfDay(ctx.segment());
         RestaurantOrder guardado = restaurantOrderRepository.save(order);
 
         for (OrderItem oi : lineasPendientes) {
             oi.setRestaurantOrder(guardado);
             orderItemRepository.save(oi);
         }
+        registrarInteraccionesCheckout(userIdStr, cart.getItems(), "PURCHASE_COMPLETED");
 
         cart.getItems().clear();
         shoppingCartRepository.save(cart);
@@ -124,5 +136,14 @@ public class PedidoService {
 
     private double safePrice(Double price) {
         return price == null ? 0.0 : price;
+    }
+
+    private void registrarInteraccionesCheckout(String userId, List<CartItemMongo> items, String action) {
+        for (CartItemMongo line : items) {
+            try {
+                userInteractionService.registrar(userId, line.getProductId(), action, null);
+            } catch (Exception ignored) {
+            }
+        }
     }
 }

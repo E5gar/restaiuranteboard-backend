@@ -57,4 +57,13 @@ public class RestaurantOrder {
 
     @Column(name = "is_rated", nullable = false)
     private Boolean isRated = false;
+
+    @Column(name = "weather_temp_c")
+    private Double weatherTempC;
+
+    @Column(name = "weather_condition", length = 50)
+    private String weatherCondition;
+
+    @Column(name = "moment_of_day", length = 20)
+    private String momentOfDay;
 }
