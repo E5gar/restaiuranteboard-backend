@@ -20,6 +20,7 @@ import com.restaiuranteboard.backend.repository.sql.RecipeRepository;
 import com.restaiuranteboard.backend.repository.sql.RestaurantOrderRepository;
 import com.restaiuranteboard.backend.repository.sql.UserRepository;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.messaging.simp.SimpMessagingTemplate;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -59,6 +60,10 @@ public class PedidoCocinaService {
     private ConfiguracionSistemaRepository configRepository;
     @Autowired
     private EmailService emailService;
+    @Autowired
+    private SimpMessagingTemplate messagingTemplate;
+    @Autowired
+    private SeguimientoClientePushService seguimientoClientePushService;
 
     @Transactional(readOnly = true)
     public List<CocinaOrdenCard> listarTablero(UUID userId) {
@@ -94,6 +99,10 @@ public class PedidoCocinaService {
         descontarStock(lines, orderId);
         order.setStatus(EST_PREPARACION);
         orderRepository.save(order);
+        messagingTemplate.convertAndSend("/topic/cocina", "orden_en_cocina");
+        if (order.getClient() != null && order.getClient().getId() != null) {
+            seguimientoClientePushService.enviar(order.getClient().getId(), "orden_en_cocina");
+        }
     }
 
     @Transactional
@@ -108,6 +117,11 @@ public class PedidoCocinaService {
         order.setProcessedAt(LocalDateTime.now());
         orderRepository.save(order);
         enviarCorreoRepartidores(order.getId().toString());
+        messagingTemplate.convertAndSend("/topic/cocina", "orden_lista");
+        messagingTemplate.convertAndSend("/topic/repartidor", "orden_lista");
+        if (order.getClient() != null && order.getClient().getId() != null) {
+            seguimientoClientePushService.enviar(order.getClient().getId(), "orden_lista");
+        }
     }
 
     private List<CocinaOrdenCard> mapCards(List<RestaurantOrder> orders) {

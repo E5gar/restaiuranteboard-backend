@@ -12,6 +12,7 @@ import com.restaiuranteboard.backend.repository.sql.InventoryRepository;
 import com.restaiuranteboard.backend.repository.sql.OrderItemRepository;
 import com.restaiuranteboard.backend.repository.sql.RecipeRepository;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.messaging.simp.SimpMessagingTemplate;
 import org.springframework.http.ResponseEntity;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.bind.annotation.*;
@@ -57,6 +58,7 @@ public class CatalogoController {
     @Autowired private RecipeRepository recipeSqlRepo;
     @Autowired private InventoryMovementRepository inventoryMovementRepo;
     @Autowired private OrderItemRepository orderItemRepo;
+    @Autowired private SimpMessagingTemplate messagingTemplate;
 
     @GetMapping("/ingredientes")
     public List<Inventory> listarIngredientes() {
@@ -189,6 +191,7 @@ public class CatalogoController {
         existente.setPrice(item.getPrice());
         existente.setImageBase64(item.getImageBase64());
         inventorySqlRepo.save(existente);
+        messagingTemplate.convertAndSend("/topic/catalogo", "ingrediente_actualizado");
 
         return ResponseEntity.ok(Map.of("message", "Insumo actualizado."));
     }
@@ -241,6 +244,7 @@ public class CatalogoController {
                 existente.setImagesBase64(incoming.getImagesBase64());
             }
             productoMongoRepo.save(existente);
+            messagingTemplate.convertAndSend("/topic/catalogo", "producto_actualizado");
             return ResponseEntity.ok(Map.of(
                     "message",
                     "Producto actualizado (solo descripción e imágenes; hay pedidos en curso)."
@@ -306,6 +310,7 @@ public class CatalogoController {
             r.setDeleted(false);
             recipeSqlRepo.save(r);
         }
+        messagingTemplate.convertAndSend("/topic/catalogo", "producto_actualizado");
 
         return ResponseEntity.ok(Map.of("message", "Producto y receta actualizados."));
     }
@@ -354,6 +359,7 @@ public class CatalogoController {
                 r.setDeleted(false);
                 recipeSqlRepo.save(r);
             }
+            messagingTemplate.convertAndSend("/topic/catalogo", "producto_creado");
 
             return ResponseEntity.ok(Map.of("message", "Producto y Receta creados exitosamente"));
         } catch (IllegalArgumentException e) {
@@ -436,6 +442,7 @@ public class CatalogoController {
         List<Recipe> recetas = recipeSqlRepo.findByMongoProductId(id);
         recetas.forEach(r -> r.setDeleted(true));
         recipeSqlRepo.saveAll(recetas);
+        messagingTemplate.convertAndSend("/topic/catalogo", "producto_eliminado");
 
         return ResponseEntity.ok(Map.of("message", "Producto eliminado lógicamente"));
     }
@@ -466,6 +473,7 @@ public class CatalogoController {
             lineas.forEach(r -> r.setDeleted(true));
             recipeSqlRepo.saveAll(lineas);
         }
+        messagingTemplate.convertAndSend("/topic/catalogo", "ingrediente_eliminado");
 
         return ResponseEntity.ok(Map.of("message", "Insumo eliminado lógicamente"));
     }

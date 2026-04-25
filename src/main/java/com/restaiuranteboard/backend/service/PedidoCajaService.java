@@ -14,6 +14,7 @@ import com.restaiuranteboard.backend.repository.sql.OrderItemRepository;
 import com.restaiuranteboard.backend.repository.sql.RestaurantOrderRepository;
 import com.restaiuranteboard.backend.repository.sql.UserRepository;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.messaging.simp.SimpMessagingTemplate;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -48,6 +49,10 @@ public class PedidoCajaService {
 
     @Autowired
     private EmailService emailService;
+    @Autowired
+    private SimpMessagingTemplate messagingTemplate;
+    @Autowired
+    private SeguimientoClientePushService seguimientoClientePushService;
 
     @Transactional(readOnly = true)
     public List<CajaOrdenListaItem> listarPendientesValidacion(UUID processorUserId) {
@@ -128,6 +133,11 @@ public class PedidoCajaService {
         orderRepository.save(o);
         User client = o.getClient();
         enviarCorreoPagoValidado(client, o.getId().toString(), o.getTotalPrice());
+        messagingTemplate.convertAndSend("/topic/caja", "pago_validado");
+        messagingTemplate.convertAndSend("/topic/cocina", "pago_validado");
+        if (client != null && client.getId() != null) {
+            seguimientoClientePushService.enviar(client.getId(), "pago_validado");
+        }
     }
 
     @Transactional
@@ -148,6 +158,10 @@ public class PedidoCajaService {
         orderRepository.save(o);
         User client = o.getClient();
         enviarCorreoPagoRechazado(client, o.getId().toString(), motivo.trim());
+        messagingTemplate.convertAndSend("/topic/caja", "pago_rechazado");
+        if (client != null && client.getId() != null) {
+            seguimientoClientePushService.enviar(client.getId(), "pago_rechazado");
+        }
     }
 
     private User requerirProcesadorCaja(UUID processorUserId) {

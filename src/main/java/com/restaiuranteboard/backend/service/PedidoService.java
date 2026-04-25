@@ -11,6 +11,7 @@ import com.restaiuranteboard.backend.repository.nosql.ShoppingCartRepository;
 import com.restaiuranteboard.backend.repository.sql.OrderItemRepository;
 import com.restaiuranteboard.backend.repository.sql.RestaurantOrderRepository;
 import com.restaiuranteboard.backend.repository.sql.UserRepository;
+import org.springframework.messaging.simp.SimpMessagingTemplate;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -47,6 +48,12 @@ public class PedidoService {
 
     @Autowired
     private UserInteractionService userInteractionService;
+
+    @Autowired
+    private SimpMessagingTemplate messagingTemplate;
+
+    @Autowired
+    private SeguimientoClientePushService seguimientoClientePushService;
 
     @Transactional
     public Map<String, Object> crearPedidoConComprobante(UUID clientId, byte[] comprobanteBytes, String contentType) {
@@ -114,6 +121,9 @@ public class PedidoService {
 
         cart.getItems().clear();
         shoppingCartRepository.save(cart);
+
+        messagingTemplate.convertAndSend("/topic/caja", "order_created");
+        seguimientoClientePushService.enviar(client.getId(), "order_created");
 
         return Map.of(
                 "orderId", guardado.getId().toString(),

@@ -12,6 +12,7 @@ import com.restaiuranteboard.backend.repository.sql.OrderItemRepository;
 import com.restaiuranteboard.backend.repository.sql.RestaurantOrderRepository;
 import com.restaiuranteboard.backend.repository.sql.UserRepository;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.messaging.simp.SimpMessagingTemplate;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -37,6 +38,10 @@ public class PedidoRepartidorService {
     private UserRepository userRepository;
     @Autowired
     private ProductoRepository productoRepository;
+    @Autowired
+    private SimpMessagingTemplate messagingTemplate;
+    @Autowired
+    private SeguimientoClientePushService seguimientoClientePushService;
 
     @Transactional(readOnly = true)
     public List<RepartidorOrdenCard> listarTablero(UUID userId) {
@@ -97,6 +102,10 @@ public class PedidoRepartidorService {
         o.setDeliveryPerson(repartidor);
         o.setDeliveryAssignedAt(LocalDateTime.now());
         orderRepository.save(o);
+        messagingTemplate.convertAndSend("/topic/repartidor", "orden_asumida");
+        if (o.getClient() != null && o.getClient().getId() != null) {
+            seguimientoClientePushService.enviar(o.getClient().getId(), "orden_asumida");
+        }
     }
 
     @Transactional
@@ -113,6 +122,10 @@ public class PedidoRepartidorService {
         o.setDeliveryPerson(null);
         o.setDeliveryAssignedAt(null);
         orderRepository.save(o);
+        messagingTemplate.convertAndSend("/topic/repartidor", "asumido_deshacer");
+        if (o.getClient() != null && o.getClient().getId() != null) {
+            seguimientoClientePushService.enviar(o.getClient().getId(), "asumido_deshacer");
+        }
     }
 
     @Transactional
@@ -129,6 +142,10 @@ public class PedidoRepartidorService {
         o.setStatus("EN_CAMINO");
         o.setProcessedAt(LocalDateTime.now());
         orderRepository.save(o);
+        messagingTemplate.convertAndSend("/topic/repartidor", "orden_en_camino");
+        if (o.getClient() != null && o.getClient().getId() != null) {
+            seguimientoClientePushService.enviar(o.getClient().getId(), "orden_en_camino");
+        }
     }
 
     @Transactional
@@ -148,6 +165,10 @@ public class PedidoRepartidorService {
         o.setDeliveredAt(LocalDateTime.now());
         o.setProcessedAt(LocalDateTime.now());
         orderRepository.save(o);
+        messagingTemplate.convertAndSend("/topic/repartidor", "orden_entregada");
+        if (o.getClient() != null && o.getClient().getId() != null) {
+            seguimientoClientePushService.enviar(o.getClient().getId(), "orden_entregada");
+        }
     }
 
     private void validarImagenEntrega(byte[] bytes, String contentType) {
