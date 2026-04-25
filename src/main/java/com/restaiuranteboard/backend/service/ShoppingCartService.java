@@ -31,6 +31,8 @@ public class ShoppingCartService {
 
     @Autowired
     private UserInteractionService userInteractionService;
+    @Autowired
+    private AiModelService aiModelService;
 
     public record LoginCartPayload(CarritoResponse cart, List<String> removedItems) {}
 
@@ -137,6 +139,44 @@ public class ShoppingCartService {
         CarritoResponse actualizado = enrich(cart);
         return new VerificarPreciosResponse(preciosCambiaron, totalAnterior, totalNuevo, cambios,
                 new CarritoResponse(actualizado.items(), removed));
+    }
+
+    public List<CarritoLineaResponse> obtenerSugerenciasVentaCruzada(String userId) {
+        validarUsuarioCliente(userId);
+        ShoppingCart cart = getOrCreate(userId);
+        sanitizeAndPersist(cart);
+        if (cart.getItems() == null || cart.getItems().isEmpty()) {
+            return List.of();
+        }
+        double total = 0d;
+        List<String> ids = new ArrayList<>();
+        for (CartItemMongo line : cart.getItems()) {
+            Producto p = productoRepository.findById(line.getProductId()).orElse(null);
+            if (p == null || p.isDeleted()) continue;
+            ids.add(p.getId());
+            total += safePrice(p.getPrice()) * line.getQuantity();
+        }
+        if (ids.isEmpty()) return List.of();
+        List<String> sugeridos = aiModelService.recomendarCrossSellTop3(ids, total);
+        if (sugeridos.isEmpty()) return List.of();
+
+        List<CarritoLineaResponse> result = new ArrayList<>();
+        for (String id : sugeridos) {
+            Producto p = productoRepository.findById(id).orElse(null);
+            if (p == null || p.isDeleted()) continue;
+            String thumb = "assets/no-image.png";
+            if (p.getImagesBase64() != null && !p.getImagesBase64().isEmpty() && p.getImagesBase64().get(0) != null) {
+                thumb = p.getImagesBase64().get(0);
+            }
+            result.add(new CarritoLineaResponse(
+                    p.getId(),
+                    1,
+                    p.getName() == null ? "" : p.getName(),
+                    safePrice(p.getPrice()),
+                    thumb
+            ));
+        }
+        return result;
     }
 
     private double safePrice(Double price) {

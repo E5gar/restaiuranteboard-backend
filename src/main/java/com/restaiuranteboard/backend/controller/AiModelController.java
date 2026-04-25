@@ -36,6 +36,16 @@ public class AiModelController {
         return ResponseEntity.ok(aiModelService.actualizarIaActiva(iaActiva));
     }
 
+    @PatchMapping("/slot/{slotNumber}/toggle")
+    public ResponseEntity<?> toggleSlot(@PathVariable int slotNumber, @RequestBody Map<String, Object> body) {
+        Object val = body == null ? null : body.get("enabled");
+        if (val == null) {
+            return ResponseEntity.badRequest().body(Map.of("message", "enabled es obligatorio."));
+        }
+        boolean enabled = val instanceof Boolean ? (Boolean) val : Boolean.parseBoolean(String.valueOf(val));
+        return ResponseEntity.ok(aiModelService.actualizarSlotEnabled(slotNumber, enabled));
+    }
+
     @PostMapping("/slot-1/upload")
     public ResponseEntity<?> subirSlot1(@RequestBody Map<String, String> body) {
         try {
@@ -54,6 +64,25 @@ public class AiModelController {
         } catch (Exception e) {
             return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
                     .body(Map.of("message", "No se pudo cargar el modelo."));
+        }
+    }
+
+    @PostMapping("/slot-2/upload")
+    public ResponseEntity<?> subirSlot2(@RequestBody Map<String, String> body) {
+        try {
+            return ResponseEntity.ok(aiModelService.subirArchivosSlot2(
+                    body == null ? null : body.get("rulesFileName"),
+                    body == null ? null : body.get("rulesFileBase64"),
+                    body == null ? null : body.get("frequencyFileName"),
+                    body == null ? null : body.get("frequencyFileBase64"),
+                    body == null ? null : body.get("configFileName"),
+                    body == null ? null : body.get("configFileBase64")
+            ));
+        } catch (IllegalArgumentException e) {
+            return ResponseEntity.status(HttpStatus.BAD_REQUEST).body(Map.of("message", e.getMessage()));
+        } catch (Exception e) {
+            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
+                    .body(Map.of("message", "No se pudo cargar el paquete de reglas del Slot 2."));
         }
     }
 }

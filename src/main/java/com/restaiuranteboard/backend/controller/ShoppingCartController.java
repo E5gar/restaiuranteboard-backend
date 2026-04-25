@@ -26,6 +26,15 @@ public class ShoppingCartController {
         }
     }
 
+    @GetMapping("/sugerencias-cross-sell")
+    public ResponseEntity<?> sugerenciasCrossSell(@RequestParam String userId) {
+        try {
+            return ResponseEntity.ok(shoppingCartService.obtenerSugerenciasVentaCruzada(userId));
+        } catch (IllegalArgumentException e) {
+            return ResponseEntity.status(HttpStatus.BAD_REQUEST).body(Map.of("message", e.getMessage()));
+        }
+    }
+
     @PostMapping("/agregar")
     public ResponseEntity<?> agregar(@RequestBody CartMutationRequest body) {
         try {

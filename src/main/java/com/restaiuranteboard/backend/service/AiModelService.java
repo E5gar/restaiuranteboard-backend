@@ -2,6 +2,7 @@ package com.restaiuranteboard.backend.service;
 
 import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
 import com.fasterxml.jackson.annotation.JsonProperty;
+import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.restaiuranteboard.backend.model.nosql.AiModelConfig;
 import com.restaiuranteboard.backend.model.nosql.Producto;
@@ -26,7 +27,9 @@ import java.util.stream.Collectors;
 @Service
 public class AiModelService {
     private static final String CONFIG_ID = "GLOBAL_AI_CONFIG";
-    private static final String HF_INFERENCE_URL = "https://restaui-backend-inferencia.hf.space/predict";
+    private static final String HF_BASE_URL = "https://restaui-backend-inferencia.hf.space";
+    private static final String HF_PREDICT_URL = HF_BASE_URL + "/predict";
+    private static final String HF_CROSS_SELL_URL = HF_BASE_URL + "/cross-sell";
     private static final double DEFAULT_BASE_SCORE = 0.15d;
 
     @Autowired
@@ -55,6 +58,14 @@ public class AiModelService {
     public Map<String, Object> actualizarIaActiva(boolean iaActiva) {
         AiModelConfig config = getOrCreateConfig();
         config.setIaActiva(iaActiva);
+        aiModelConfigRepository.save(config);
+        return toResponse(config, true);
+    }
+
+    public Map<String, Object> actualizarSlotEnabled(int slotNumber, boolean enabled) {
+        AiModelConfig config = getOrCreateConfig();
+        AiModelConfig.ModelSlot slot = findSlot(config, slotNumber);
+        slot.setSlotEnabled(enabled);
         aiModelConfigRepository.save(config);
         return toResponse(config, true);
     }
@@ -89,6 +100,51 @@ public class AiModelService {
         slot1.setUploadedAt(LocalDateTime.now());
         slot1.setStatus("ACTIVO");
 
+        aiModelConfigRepository.save(config);
+        return toResponse(config, true);
+    }
+
+    public Map<String, Object> subirArchivosSlot2(
+            String rulesFileName,
+            String rulesFileBase64,
+            String frequencyFileName,
+            String frequencyFileBase64,
+            String configFileName,
+            String configFileBase64
+    ) {
+        if (isBlank(rulesFileName) || isBlank(rulesFileBase64)) {
+            throw new IllegalArgumentException("El archivo rules.json es obligatorio.");
+        }
+        if (isBlank(frequencyFileName) || isBlank(frequencyFileBase64)) {
+            throw new IllegalArgumentException("El archivo frequency.json es obligatorio.");
+        }
+        if (isBlank(configFileName) || isBlank(configFileBase64)) {
+            throw new IllegalArgumentException("El archivo config.json es obligatorio.");
+        }
+        if (!rulesFileName.toLowerCase().endsWith(".json")
+                || !frequencyFileName.toLowerCase().endsWith(".json")
+                || !configFileName.toLowerCase().endsWith(".json")) {
+            throw new IllegalArgumentException("Los archivos del Slot 2 deben ser JSON.");
+        }
+
+        decodeBase64Payload(rulesFileBase64);
+        decodeBase64Payload(frequencyFileBase64);
+        decodeBase64Payload(configFileBase64);
+
+        AiModelConfig config = getOrCreateConfig();
+        AiModelConfig.ModelSlot slot2 = findSlot(config, 2);
+        slot2.setStatus("CARGANDO");
+        aiModelConfigRepository.save(config);
+
+        slot2.setRulesFileName(rulesFileName.trim());
+        slot2.setRulesFileBase64(rulesFileBase64.trim());
+        slot2.setFrequencyFileName(frequencyFileName.trim());
+        slot2.setFrequencyFileBase64(frequencyFileBase64.trim());
+        slot2.setConfigFileName(configFileName.trim());
+        slot2.setConfigFileBase64(configFileBase64.trim());
+        slot2.setUploadedAt(LocalDateTime.now());
+        slot2.setStatus("ACTIVO");
+        slot2.setSlotEnabled(true);
         aiModelConfigRepository.save(config);
         return toResponse(config, true);
     }
@@ -231,7 +287,7 @@ public class AiModelService {
                     inputs
             );
             ResponseEntity<HfPredictResponse> response = hfRestTemplate.postForEntity(
-                    HF_INFERENCE_URL,
+                    HF_PREDICT_URL,
                     payload,
                     HfPredictResponse.class
             );
@@ -258,6 +314,149 @@ public class AiModelService {
         } catch (Exception e) {
             return List.of();
         }
+    }
+
+    public List<String> recomendarCrossSellTop3(List<String> cartProductIds, double cartTotal) {
+        if (cartProductIds == null || cartProductIds.isEmpty()) return List.of();
+
+        AiModelConfig config = getOrCreateConfig();
+        AiModelConfig.ModelSlot slot2 = config.getSlots().stream()
+                .filter(s -> s.getSlotNumber() == 2)
+                .findFirst()
+                .orElse(null);
+        if (slot2 == null
+                || !"ACTIVO".equalsIgnoreCase(slot2.getStatus())
+                || !slot2.isSlotEnabled()
+                || isBlank(slot2.getRulesFileBase64())
+                || isBlank(slot2.getFrequencyFileBase64())
+                || isBlank(slot2.getConfigFileBase64())) {
+            return List.of();
+        }
+
+        List<Producto> productos = productoRepository.findByIsDeletedFalse();
+        if (productos.isEmpty()) return List.of();
+
+        Map<String, Producto> byId = productos.stream()
+                .collect(Collectors.toMap(Producto::getId, p -> p, (a, b) -> a));
+        List<String> cartNames = cartProductIds.stream()
+                .map(byId::get)
+                .filter(Objects::nonNull)
+                .map(Producto::getName)
+                .filter(Objects::nonNull)
+                .toList();
+        if (cartNames.isEmpty()) return List.of();
+
+        try {
+            List<Map<String, Object>> rules = readJsonList(slot2.getRulesFileBase64());
+            Map<String, Object> frequency = readJsonMap(slot2.getFrequencyFileBase64());
+            Map<String, Object> cfg = readJsonMap(slot2.getConfigFileBase64());
+            List<Map<String, Object>> catalog = productos.stream().map(p -> {
+                Map<String, Object> row = new LinkedHashMap<>();
+                row.put("id", p.getId());
+                row.put("name", p.getName());
+                row.put("category", p.getCategory());
+                row.put("price", p.getPrice() == null ? 0d : p.getPrice());
+                return row;
+            }).toList();
+
+            HfCrossSellRequest request = new HfCrossSellRequest(
+                    cartNames,
+                    Math.max(cartTotal, 0d),
+                    rules,
+                    frequency,
+                    catalog,
+                    cfg,
+                    3
+            );
+            ResponseEntity<HfCrossSellResponse> response = hfRestTemplate.postForEntity(
+                    HF_CROSS_SELL_URL,
+                    request,
+                    HfCrossSellResponse.class
+            );
+            HfCrossSellResponse body = response.getBody();
+            if (!response.getStatusCode().is2xxSuccessful() || body == null || body.recommendations() == null) {
+                return recomendarCrossSellHeuristico(cartProductIds, cartTotal, productos);
+            }
+
+            Map<String, Producto> byName = productos.stream()
+                    .filter(p -> p.getName() != null)
+                    .collect(Collectors.toMap(p -> p.getName().trim().toUpperCase(Locale.ROOT), p -> p, (a, b) -> a));
+
+            List<CrossSellItem> normalized = new ArrayList<>();
+            for (Map<String, Object> rec : body.recommendations()) {
+                if (rec == null) continue;
+                String prodName = String.valueOf(rec.getOrDefault("product", "")).trim().toUpperCase(Locale.ROOT);
+                Producto p = byName.get(prodName);
+                if (p == null || p.getId() == null || cartProductIds.contains(p.getId())) continue;
+                double confidence = toDouble(rec.get("confidence"), 0d);
+                double lift = toDouble(rec.get("lift"), 0d);
+                int priority = categoryPriority(p.getCategory());
+                normalized.add(new CrossSellItem(p, confidence, lift, priority));
+            }
+
+            normalized.sort(Comparator
+                    .comparingInt(CrossSellItem::priority)
+                    .thenComparing(CrossSellItem::confidence, Comparator.reverseOrder())
+                    .thenComparing(CrossSellItem::lift, Comparator.reverseOrder())
+                    .thenComparing(item -> factorRentabilidad(item.product()), Comparator.reverseOrder()));
+
+            return normalized.stream()
+                    .limit(3)
+                    .map(item -> item.product().getId())
+                    .toList();
+        } catch (Exception e) {
+            return recomendarCrossSellHeuristico(cartProductIds, cartTotal, productos);
+        }
+    }
+
+    private List<String> recomendarCrossSellHeuristico(List<String> cartProductIds, double cartTotal, List<Producto> productos) {
+        Set<String> inCart = new HashSet<>(cartProductIds);
+        double maxPrice = cartTotal > 0 ? cartTotal * 0.35d : Double.MAX_VALUE;
+        boolean hasMainDish = productos.stream()
+                .filter(p -> inCart.contains(p.getId()))
+                .anyMatch(p -> "PLATO PRINCIPAL".equalsIgnoreCase(String.valueOf(p.getCategory())));
+
+        return productos.stream()
+                .filter(p -> p.getId() != null && !inCart.contains(p.getId()))
+                .filter(p -> p.getPrice() != null && p.getPrice() <= maxPrice)
+                .filter(p -> !(hasMainDish && "PLATO PRINCIPAL".equalsIgnoreCase(String.valueOf(p.getCategory()))))
+                .sorted(Comparator
+                        .comparingInt((Producto p) -> categoryPriority(p.getCategory()))
+                        .thenComparing(p -> factorRentabilidad(p), Comparator.reverseOrder()))
+                .limit(3)
+                .map(Producto::getId)
+                .toList();
+    }
+
+    private int categoryPriority(String category) {
+        if (category == null) return 50;
+        String c = category.trim().toUpperCase(Locale.ROOT);
+        return switch (c) {
+            case "BEBIDAS" -> 1;
+            case "ENTRADA" -> 2;
+            case "POSTRES" -> 3;
+            default -> 50;
+        };
+    }
+
+    private double toDouble(Object v, double fallback) {
+        if (v == null) return fallback;
+        if (v instanceof Number n) return n.doubleValue();
+        try {
+            return Double.parseDouble(String.valueOf(v));
+        } catch (Exception e) {
+            return fallback;
+        }
+    }
+
+    private List<Map<String, Object>> readJsonList(String base64) throws IOException {
+        byte[] raw = decodeBase64Payload(base64);
+        return objectMapper.readValue(raw, new TypeReference<>() {});
+    }
+
+    private Map<String, Object> readJsonMap(String base64) throws IOException {
+        byte[] raw = decodeBase64Payload(base64);
+        return objectMapper.readValue(raw, new TypeReference<>() {});
     }
 
     private EncodersJson parseEncoders(AiModelConfig.ModelSlot slot1) throws IOException {
@@ -377,12 +576,19 @@ public class AiModelService {
             m.put("slotNumber", s.getSlotNumber());
             m.put("titulo", s.getTitulo());
             m.put("status", s.getStatus());
+            m.put("slotEnabled", s.isSlotEnabled());
             m.put("modelFileName", s.getModelFileName());
             m.put("encodersFileName", s.getEncodersFileName());
+            m.put("rulesFileName", s.getRulesFileName());
+            m.put("frequencyFileName", s.getFrequencyFileName());
+            m.put("configFileName", s.getConfigFileName());
             m.put("uploadedAt", s.getUploadedAt());
             if (includeFiles) {
                 m.put("modelFileBase64", s.getModelFileBase64());
                 m.put("encodersFileBase64", s.getEncodersFileBase64());
+                m.put("rulesFileBase64", s.getRulesFileBase64());
+                m.put("frequencyFileBase64", s.getFrequencyFileBase64());
+                m.put("configFileBase64", s.getConfigFileBase64());
             }
             slots.add(m);
         }
@@ -400,11 +606,13 @@ public class AiModelService {
             slot1.setSlotNumber(1);
             slot1.setTitulo("Slot 1: Menú Principal");
             slot1.setStatus("VACIO");
+            slot1.setSlotEnabled(true);
 
             AiModelConfig.ModelSlot slot2 = new AiModelConfig.ModelSlot();
             slot2.setSlotNumber(2);
-            slot2.setTitulo("Slot 2: Próximamente");
+            slot2.setTitulo("Slot 2: Venta Cruzada para Carrito");
             slot2.setStatus("VACIO");
+            slot2.setSlotEnabled(false);
 
             AiModelConfig.ModelSlot slot3 = new AiModelConfig.ModelSlot();
             slot3.setSlotNumber(3);
@@ -414,6 +622,13 @@ public class AiModelService {
             cfg.setSlots(new ArrayList<>(List.of(slot1, slot2, slot3)));
             return aiModelConfigRepository.save(cfg);
         });
+    }
+
+    private AiModelConfig.ModelSlot findSlot(AiModelConfig config, int slotNumber) {
+        return config.getSlots().stream()
+                .filter(s -> s.getSlotNumber() == slotNumber)
+                .findFirst()
+                .orElseThrow(() -> new IllegalArgumentException("Slot no encontrado."));
     }
 
     private boolean isBlank(String s) {
@@ -430,6 +645,31 @@ public class AiModelService {
     @JsonIgnoreProperties(ignoreUnknown = true)
     private record HfPredictResponse(
             @JsonProperty("scores") List<Double> scores
+    ) {
+    }
+
+    private record HfCrossSellRequest(
+            @JsonProperty("cart_items") List<String> cartItems,
+            @JsonProperty("cart_total") double cartTotal,
+            @JsonProperty("rules") List<Map<String, Object>> rules,
+            @JsonProperty("frequency") Map<String, Object> frequency,
+            @JsonProperty("catalog") List<Map<String, Object>> catalog,
+            @JsonProperty("config") Map<String, Object> config,
+            @JsonProperty("top_k") Integer topK
+    ) {
+    }
+
+    @JsonIgnoreProperties(ignoreUnknown = true)
+    private record HfCrossSellResponse(
+            @JsonProperty("recommendations") List<Map<String, Object>> recommendations
+    ) {
+    }
+
+    private record CrossSellItem(
+            Producto product,
+            Double confidence,
+            Double lift,
+            Integer priority
     ) {
     }
 

@@ -21,10 +21,17 @@ public class AiModelConfig {
         private int slotNumber;
         private String titulo;
         private String status;
+        private boolean slotEnabled = false;
         private String modelFileName;
         private String modelFileBase64;
         private String encodersFileName;
         private String encodersFileBase64;
+        private String rulesFileName;
+        private String rulesFileBase64;
+        private String frequencyFileName;
+        private String frequencyFileBase64;
+        private String configFileName;
+        private String configFileBase64;
         private LocalDateTime uploadedAt;
     }
 }
