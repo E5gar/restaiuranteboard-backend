@@ -3,6 +3,7 @@ package com.restaiuranteboard.backend.controller;
 import com.restaiuranteboard.backend.model.sql.*;
 import com.restaiuranteboard.backend.repository.sql.*;
 import com.restaiuranteboard.backend.service.EmailService;
+import com.restaiuranteboard.backend.security.JwtService;
 import com.restaiuranteboard.backend.model.nosql.ConfiguracionSistema;
 import com.restaiuranteboard.backend.repository.nosql.ConfiguracionSistemaRepository;
 import com.restaiuranteboard.backend.service.ShoppingCartService;
@@ -31,6 +32,7 @@ public class AuthController {
     @Autowired private ConfiguracionSistemaRepository configRepo;
     @Autowired private PasswordEncoder passwordEncoder;
     @Autowired private ShoppingCartService shoppingCartService;
+    @Autowired private JwtService jwtService;
 
     private static final int MAX_INTENTOS_FALLIDOS = 3;
     private static final long BLOQUEO_MINUTOS = 60;
@@ -155,7 +157,13 @@ public class AuthController {
         }
 
         if (user.isFirstLogin()) {
+            String token = jwtService.generateToken(
+                    user.getEmail(),
+                    user.getId().toString(),
+                    user.getRole().getName()
+            );
             Map<String, Object> bodyFirst = new LinkedHashMap<>();
+            bodyFirst.put("token", token);
             bodyFirst.put("email", user.getEmail());
             bodyFirst.put("firstLogin", true);
             bodyFirst.put("role", user.getRole().getName());
@@ -203,7 +211,13 @@ public class AuthController {
         ipLoginAttemptRepo.save(intentoIp);
         registrarAuditoriaLogin(user.getEmail(), ip, userAgent, "SUCCESS", null);
 
+        String token = jwtService.generateToken(
+                user.getEmail(),
+                user.getId().toString(),
+                user.getRole().getName()
+        );
         Map<String, Object> body = new LinkedHashMap<>();
+        body.put("token", token);
         body.put("fullName", user.getFullName());
         body.put("role", user.getRole().getName());
         body.put("email", user.getEmail());

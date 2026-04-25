@@ -18,6 +18,7 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.http.client.SimpleClientHttpRequestFactory;
 import org.springframework.stereotype.Service;
 import org.springframework.web.client.RestTemplate;
+import org.springframework.beans.factory.annotation.Value;
 
 import java.io.IOException;
 import java.time.LocalDateTime;
@@ -27,9 +28,17 @@ import java.util.stream.Collectors;
 @Service
 public class AiModelService {
     private static final String CONFIG_ID = "GLOBAL_AI_CONFIG";
-    private static final String HF_BASE_URL = "https://restaui-backend-inferencia.hf.space";
-    private static final String HF_PREDICT_URL = HF_BASE_URL + "/predict";
-    private static final String HF_CROSS_SELL_URL = HF_BASE_URL + "/cross-sell";
+    
+    @Value("${ai.inference.url}")
+    private String hfBaseUrl;
+    
+    private String getPredictUrl() {
+        return hfBaseUrl + "/predict";
+    }
+    private String getCrossSellUrl() {
+        return hfBaseUrl + "/cross-sell";
+    }
+
     private static final double DEFAULT_BASE_SCORE = 0.15d;
 
     @Autowired
@@ -287,7 +296,7 @@ public class AiModelService {
                     inputs
             );
             ResponseEntity<HfPredictResponse> response = hfRestTemplate.postForEntity(
-                    HF_PREDICT_URL,
+                    getPredictUrl(),
                     payload,
                     HfPredictResponse.class
             );
@@ -369,7 +378,7 @@ public class AiModelService {
                     3
             );
             ResponseEntity<HfCrossSellResponse> response = hfRestTemplate.postForEntity(
-                    HF_CROSS_SELL_URL,
+                    getCrossSellUrl(),
                     request,
                     HfCrossSellResponse.class
             );
@@ -395,10 +404,11 @@ public class AiModelService {
             }
 
             normalized.sort(Comparator
-                    .comparingInt(CrossSellItem::priority)
-                    .thenComparing(CrossSellItem::confidence, Comparator.reverseOrder())
-                    .thenComparing(CrossSellItem::lift, Comparator.reverseOrder())
-                    .thenComparing(item -> factorRentabilidad(item.product()), Comparator.reverseOrder()));
+                    .<CrossSellItem>comparingInt(CrossSellItem::priority) // Especificamos <CrossSellItem> explícitamente
+                    .thenComparing(Comparator.comparing(CrossSellItem::confidence).reversed())
+                    .thenComparing(Comparator.comparing(CrossSellItem::lift).reversed())
+                    .thenComparing(Comparator.comparing((CrossSellItem item) -> factorRentabilidad(item.product())).reversed())
+            );
 
             return normalized.stream()
                     .limit(3)
