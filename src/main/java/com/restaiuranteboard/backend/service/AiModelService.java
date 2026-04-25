@@ -1,16 +1,5 @@
 package com.restaiuranteboard.backend.service;
 
-import ai.djl.ModelException;
-import ai.djl.inference.Predictor;
-import ai.djl.ndarray.NDArray;
-import ai.djl.ndarray.NDList;
-import ai.djl.ndarray.NDManager;
-import ai.djl.ndarray.types.Shape;
-import ai.djl.repository.zoo.Criteria;
-import ai.djl.repository.zoo.ModelNotFoundException;
-import ai.djl.repository.zoo.ZooModel;
-import ai.djl.translate.NoopTranslator;
-import ai.djl.translate.TranslateException;
 import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
 import com.fasterxml.jackson.annotation.JsonProperty;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -24,11 +13,12 @@ import com.restaiuranteboard.backend.repository.nosql.ProductoRepository;
 import com.restaiuranteboard.backend.repository.nosql.UserInteractionRepository;
 import com.restaiuranteboard.backend.repository.sql.RecipeRepository;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.http.ResponseEntity;
+import org.springframework.http.client.SimpleClientHttpRequestFactory;
 import org.springframework.stereotype.Service;
+import org.springframework.web.client.RestTemplate;
 
 import java.io.IOException;
-import java.nio.file.Files;
-import java.nio.file.Path;
 import java.time.LocalDateTime;
 import java.util.*;
 import java.util.stream.Collectors;
@@ -36,6 +26,7 @@ import java.util.stream.Collectors;
 @Service
 public class AiModelService {
     private static final String CONFIG_ID = "GLOBAL_AI_CONFIG";
+    private static final String HF_INFERENCE_URL = "https://restaui-backend-inferencia.hf.space/predict";
     private static final double DEFAULT_BASE_SCORE = 0.15d;
 
     @Autowired
@@ -51,11 +42,7 @@ public class AiModelService {
     @Autowired
     private ObjectMapper objectMapper;
 
-    private final Object modelLock = new Object();
-    private volatile ZooModel<NDList, NDList> djlModel;
-    private volatile Predictor<NDList, NDList> djlPredictor;
-    private volatile String djlCacheKey;
-    private volatile Path djlTempModelFile;
+    private final RestTemplate hfRestTemplate = createHfRestTemplate();
 
     public Map<String, Object> obtenerConfigAdmin() {
         return toResponse(getOrCreateConfig(), true);
@@ -123,9 +110,9 @@ public class AiModelService {
 
         List<UserInteraction> interacciones = userInteractionRepository.findTop100ByUserIdOrderByTimestampDesc(userId);
         ContextoInteligenciaService.ContextoInteligencia ctx = contextoInteligenciaService.contextoActual();
-        List<String> prediccionesDjl = recomendarTop3ConDjl(userId, slot1, productos, interacciones, ctx);
-        if (!prediccionesDjl.isEmpty()) {
-            return prediccionesDjl;
+        List<String> prediccionesHf = recomendarTop3ConHf(userId, slot1, productos, interacciones, ctx);
+        if (!prediccionesHf.isEmpty()) {
+            return prediccionesHf;
         }
         return recomendarTop3Heuristico(productos, interacciones, ctx);
     }
@@ -166,7 +153,7 @@ public class AiModelService {
                 .collect(Collectors.toList());
     }
 
-    private List<String> recomendarTop3ConDjl(
+    private List<String> recomendarTop3ConHf(
             String userId,
             AiModelConfig.ModelSlot slot1,
             List<Producto> productos,
@@ -178,9 +165,6 @@ public class AiModelService {
             if (encoders == null || encoders.productIds().isEmpty()) {
                 return List.of();
             }
-            Predictor<NDList, NDList> predictor = ensurePredictor(slot1);
-            if (predictor == null) return List.of();
-
             Map<String, Integer> userMap = toIndexMap(encoders.userIds());
             Map<String, Integer> productMap = toIndexMap(encoders.productIds());
             Map<String, Integer> conditionMap = toIndexMap(encoders.conditions());
@@ -210,66 +194,57 @@ public class AiModelService {
             int dayEnc = safeEncode(dayMap, dia, 0);
             int actionEnc = safeEncode(actionMap, ultimaAccion, 0);
 
-            int[] userInput = new int[n];
-            int[] productInput = new int[n];
-            int[] conditionInput = new int[n];
-            int[] segmentInput = new int[n];
-            int[] dayInput = new int[n];
-            int[] actionInput = new int[n];
-            float[] tempInput = new float[n];
-            float[] dwellInput = new float[n];
+            List<Object> userInput = new ArrayList<>(n);
+            List<Object> productInput = new ArrayList<>(n);
+            List<Object> conditionInput = new ArrayList<>(n);
+            List<Object> segmentInput = new ArrayList<>(n);
+            List<Object> dayInput = new ArrayList<>(n);
+            List<Object> actionInput = new ArrayList<>(n);
+            List<Object> tempInput = new ArrayList<>(n);
+            List<Object> dwellInput = new ArrayList<>(n);
 
             for (int i = 0; i < n; i++) {
                 Producto p = productos.get(i);
-                userInput[i] = userEnc;
-                productInput[i] = safeEncode(productMap, normalizeToken(p.getId()), 0);
-                conditionInput[i] = conditionEnc;
-                segmentInput[i] = segmentEnc;
-                dayInput[i] = dayEnc;
-                actionInput[i] = actionEnc;
-                tempInput[i] = tempNorm;
-                dwellInput[i] = dwellNorm;
+                userInput.add(userEnc);
+                productInput.add(safeEncode(productMap, normalizeToken(p.getId()), 0));
+                conditionInput.add(conditionEnc);
+                segmentInput.add(segmentEnc);
+                dayInput.add(dayEnc);
+                actionInput.add(actionEnc);
+                tempInput.add(tempNorm);
+                dwellInput.add(dwellNorm);
             }
 
-            float[] scores;
-            try (NDManager manager = NDManager.newBaseManager()) {
-                NDArray userArr = manager.create(userInput, new Shape(n, 1));
-                NDArray productArr = manager.create(productInput, new Shape(n, 1));
-                NDArray conditionArr = manager.create(conditionInput, new Shape(n, 1));
-                NDArray momentArr = manager.create(segmentInput, new Shape(n, 1));
-                NDArray dayArr = manager.create(dayInput, new Shape(n, 1));
-                NDArray actionArr = manager.create(actionInput, new Shape(n, 1));
-                NDArray tempArr = manager.create(tempInput, new Shape(n, 1));
-                NDArray dwellArr = manager.create(dwellInput, new Shape(n, 1));
+            Map<String, List<Object>> inputs = new LinkedHashMap<>();
+            inputs.put("user_input", userInput);
+            inputs.put("product_input", productInput);
+            inputs.put("condition_input", conditionInput);
+            inputs.put("moment_input", segmentInput);
+            inputs.put("day_input", dayInput);
+            inputs.put("action_input", actionInput);
+            inputs.put("temp_input", tempInput);
+            inputs.put("dwell_input", dwellInput);
 
-                userArr.setName("user_input");
-                productArr.setName("product_input");
-                conditionArr.setName("condition_input");
-                momentArr.setName("moment_input");
-                dayArr.setName("day_input");
-                actionArr.setName("action_input");
-                tempArr.setName("temp_input");
-                dwellArr.setName("dwell_input");
-
-                NDList output = predictor.predict(new NDList(
-                        userArr,
-                        productArr,
-                        conditionArr,
-                        momentArr,
-                        dayArr,
-                        actionArr,
-                        tempArr,
-                        dwellArr
-                ));
-                if (output == null || output.isEmpty()) return List.of();
-                scores = output.get(0).toFloatArray();
+            HfPredictRequest payload = new HfPredictRequest(
+                    slot1.getModelFileBase64(),
+                    buildModelId(slot1),
+                    inputs
+            );
+            ResponseEntity<HfPredictResponse> response = hfRestTemplate.postForEntity(
+                    HF_INFERENCE_URL,
+                    payload,
+                    HfPredictResponse.class
+            );
+            HfPredictResponse body = response.getBody();
+            if (!response.getStatusCode().is2xxSuccessful() || body == null || body.scores() == null) {
+                return List.of();
             }
-
-            if (scores.length < n) return List.of();
+            List<Double> scores = body.scores();
+            if (scores.size() < n) return List.of();
             Map<String, Double> puntaje = new HashMap<>();
             for (int i = 0; i < n; i++) {
                 Producto p = productos.get(i);
-                double s = scores[i];
+                double s = scores.get(i);
                 if (Double.isNaN(s) || Double.isInfinite(s)) s = DEFAULT_BASE_SCORE;
                 s *= factorRentabilidad(p);
                 puntaje.put(p.getId(), s);
@@ -283,73 +258,6 @@ public class AiModelService {
         } catch (Exception e) {
             return List.of();
         }
-    }
-
-    private Predictor<NDList, NDList> ensurePredictor(AiModelConfig.ModelSlot slot1)
-            throws IOException, ModelNotFoundException, ModelException {
-        String cacheKey = buildCacheKey(slot1);
-        if (cacheKey.equals(djlCacheKey) && djlPredictor != null) {
-            return djlPredictor;
-        }
-
-        synchronized (modelLock) {
-            if (cacheKey.equals(djlCacheKey) && djlPredictor != null) {
-                return djlPredictor;
-            }
-            closeCachedModel();
-            byte[] modelBytes = decodeBase64Payload(slot1.getModelFileBase64());
-            if (modelBytes.length == 0) return null;
-            Path tempFile = Files.createTempFile("rb-model-slot1-", ".keras");
-            Files.write(tempFile, modelBytes);
-
-            Criteria<NDList, NDList> criteria = Criteria.builder()
-                    .setTypes(NDList.class, NDList.class)
-                    .optEngine("TensorFlow")
-                    .optModelPath(tempFile)
-                    .optTranslator(new NoopTranslator())
-                    .build();
-
-            ZooModel<NDList, NDList> loadedModel = criteria.loadModel();
-            Predictor<NDList, NDList> loadedPredictor = loadedModel.newPredictor();
-            djlModel = loadedModel;
-            djlPredictor = loadedPredictor;
-            djlTempModelFile = tempFile;
-            djlCacheKey = cacheKey;
-            return djlPredictor;
-        }
-    }
-
-    private void closeCachedModel() {
-        if (djlPredictor != null) {
-            try {
-                djlPredictor.close();
-            } catch (Exception ignored) {
-            }
-        }
-        if (djlModel != null) {
-            try {
-                djlModel.close();
-            } catch (Exception ignored) {
-            }
-        }
-        if (djlTempModelFile != null) {
-            try {
-                Files.deleteIfExists(djlTempModelFile);
-            } catch (Exception ignored) {
-            }
-        }
-        djlPredictor = null;
-        djlModel = null;
-        djlTempModelFile = null;
-        djlCacheKey = null;
-    }
-
-    private String buildCacheKey(AiModelConfig.ModelSlot slot1) {
-        return String.join("|",
-                String.valueOf(slot1.getUploadedAt()),
-                String.valueOf(slot1.getModelFileName()),
-                String.valueOf(slot1.getEncodersFileName())
-        );
     }
 
     private EncodersJson parseEncoders(AiModelConfig.ModelSlot slot1) throws IOException {
@@ -398,6 +306,21 @@ public class AiModelService {
     private float normalizeDwell01(double dwell) {
         double n = dwell / 300d;
         return (float) Math.max(0d, Math.min(1d, n));
+    }
+
+    private String buildModelId(AiModelConfig.ModelSlot slot1) {
+        return String.join("|",
+                String.valueOf(slot1.getUploadedAt()),
+                String.valueOf(slot1.getModelFileName()),
+                String.valueOf(slot1.getEncodersFileName())
+        );
+    }
+
+    private RestTemplate createHfRestTemplate() {
+        SimpleClientHttpRequestFactory factory = new SimpleClientHttpRequestFactory();
+        factory.setConnectTimeout(2500);
+        factory.setReadTimeout(7000);
+        return new RestTemplate(factory);
     }
 
     private double factorRentabilidad(Producto p) {
@@ -495,6 +418,19 @@ public class AiModelService {
 
     private boolean isBlank(String s) {
         return s == null || s.trim().isEmpty();
+    }
+
+    private record HfPredictRequest(
+            @JsonProperty("model_base64") String modelBase64,
+            @JsonProperty("model_id") String modelId,
+            @JsonProperty("inputs") Map<String, List<Object>> inputs
+    ) {
+    }
+
+    @JsonIgnoreProperties(ignoreUnknown = true)
+    private record HfPredictResponse(
+            @JsonProperty("scores") List<Double> scores
+    ) {
     }
 
     @JsonIgnoreProperties(ignoreUnknown = true)
