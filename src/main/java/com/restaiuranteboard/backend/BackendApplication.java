@@ -6,6 +6,9 @@ import jakarta.annotation.PostConstruct;
 import java.util.TimeZone;
 
 @SpringBootApplication
+@EnableJpaRepositories(basePackages = "com.restaiuranteboard.backend.repository.sql")
+@EnableMongoRepositories(basePackages = "com.restaiuranteboard.backend.repository.nosql")
+
 public class BackendApplication {
 
 	@PostConstruct
