@@ -3,6 +3,7 @@ package com.restaiuranteboard.backend.controller;
 import com.restaiuranteboard.backend.dto.ActualizarIngredienteRequest;
 import com.restaiuranteboard.backend.dto.ProductoRequest;
 import com.restaiuranteboard.backend.model.nosql.Producto;
+import com.restaiuranteboard.backend.service.AiModelService;
 import com.restaiuranteboard.backend.model.sql.Inventory;
 import com.restaiuranteboard.backend.model.sql.InventoryMovement;
 import com.restaiuranteboard.backend.model.sql.Recipe;
@@ -22,6 +23,7 @@ import java.math.RoundingMode;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -59,6 +61,7 @@ public class CatalogoController {
     @Autowired private InventoryMovementRepository inventoryMovementRepo;
     @Autowired private OrderItemRepository orderItemRepo;
     @Autowired private SimpMessagingTemplate messagingTemplate;
+    @Autowired private AiModelService aiModelService;
 
     @GetMapping("/ingredientes")
     public List<Inventory> listarIngredientes() {
@@ -318,6 +321,21 @@ public class CatalogoController {
     @GetMapping("/productos")
     public List<Producto> listarProductos() {
         return productoMongoRepo.findByIsDeletedFalse();
+    }
+
+    @GetMapping("/productos/menu")
+    public ResponseEntity<?> listarProductosConSugerencias(@RequestParam(required = false) String userId) {
+        List<Producto> productos = productoMongoRepo.findByIsDeletedFalse();
+        List<String> recomendados = aiModelService.recomendarTop3(userId);
+        Set<String> ids = new HashSet<>(recomendados);
+
+        Map<String, Object> body = new HashMap<>();
+        body.put("productos", productos);
+        body.put("recommendedProductIds", recomendados);
+        body.put("showRecommendations", !recomendados.isEmpty());
+        body.put("recommendationsTitle", "Sugerencias para ti");
+        body.put("highlightedProducts", productos.stream().filter(p -> ids.contains(p.getId())).toList());
+        return ResponseEntity.ok(body);
     }
 
     @PostMapping("/productos")
