@@ -28,7 +28,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 
-@CrossOrigin(origins = "*")
+
 @RestController
 @RequestMapping("/api/catalogo")
 public class CatalogoController {

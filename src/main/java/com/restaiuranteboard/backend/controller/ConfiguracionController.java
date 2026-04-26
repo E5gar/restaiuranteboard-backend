@@ -18,7 +18,7 @@ import java.util.Objects;
 import java.util.Optional;
 import java.util.Random;
 
-@CrossOrigin(origins = "*")
+
 @RestController
 @RequestMapping("/api/configuracion")
 public class ConfiguracionController {

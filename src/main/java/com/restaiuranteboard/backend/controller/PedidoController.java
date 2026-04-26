@@ -11,7 +11,7 @@ import org.springframework.web.multipart.MultipartFile;
 import java.util.Map;
 import java.util.UUID;
 
-@CrossOrigin(origins = "*")
+
 @RestController
 @RequestMapping("/api/pedidos")
 public class PedidoController {

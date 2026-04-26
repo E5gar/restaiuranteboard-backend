@@ -18,7 +18,7 @@ import java.time.LocalDateTime;
 import java.time.temporal.ChronoUnit;
 import java.util.*;
 
-@CrossOrigin(origins = "*")
+
 @RestController
 @RequestMapping("/api/auth")
 public class AuthController {
