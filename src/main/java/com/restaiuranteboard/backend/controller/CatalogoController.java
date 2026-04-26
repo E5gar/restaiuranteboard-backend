@@ -338,6 +338,28 @@ public class CatalogoController {
         return ResponseEntity.ok(body);
     }
 
+    @GetMapping("/productos/menu/base")
+    public ResponseEntity<?> listarProductosMenuBase() {
+        List<Producto> productos = productoMongoRepo.findByIsDeletedFalse();
+        Map<String, Object> body = new HashMap<>();
+        body.put("productos", productos);
+        return ResponseEntity.ok(body);
+    }
+
+    @GetMapping("/productos/menu/recomendaciones")
+    public ResponseEntity<?> obtenerRecomendacionesMenu(@RequestParam(required = false) String userId) {
+        List<Producto> productos = productoMongoRepo.findByIsDeletedFalse();
+        List<String> recomendados = aiModelService.recomendarTop3(userId);
+        Set<String> ids = new HashSet<>(recomendados);
+
+        Map<String, Object> body = new HashMap<>();
+        body.put("recommendedProductIds", recomendados);
+        body.put("showRecommendations", !recomendados.isEmpty());
+        body.put("recommendationsTitle", "Sugerencias para ti");
+        body.put("highlightedProducts", productos.stream().filter(p -> ids.contains(p.getId())).toList());
+        return ResponseEntity.ok(body);
+    }
+
     @PostMapping("/productos")
     public ResponseEntity<?> guardarProducto(@RequestBody ProductoRequest request) {
         Producto guardado = null;
