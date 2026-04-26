@@ -69,6 +69,11 @@ public class AuthController {
         return registrarUsuarioClienteInterno(data);
     }
 
+    @PostMapping("/registrar-admin")
+    public ResponseEntity<?> registrarAdmin(@RequestBody Map<String, String> data) {
+        return registrarUsuarioClienteInterno(data);
+    }
+
     @PostMapping("/registrar-cliente")
     public ResponseEntity<?> registrarCliente(@RequestBody Map<String, String> data) {
         return registrarUsuarioClienteInterno(data);

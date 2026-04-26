@@ -44,7 +44,9 @@ public class SecurityConfig {
                         "/api/auth/confirmar-empleado",
                         "/api/auth/enviar-codigo-recuperacion",
                         "/api/auth/reset-password",
-                        "/api/auth/ip-status"
+                        "/api/auth/ip-status",
+                        "/api/configuracion/**",
+                        "/api/estado_bases_datos"
                 ).permitAll()
                 .requestMatchers("/api/auth/crear-empleado").hasRole("ADMIN")
                 .requestMatchers("/api/**").authenticated()
