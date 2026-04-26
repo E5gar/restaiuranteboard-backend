@@ -55,6 +55,7 @@ public class SecurityConfig {
                 .requestMatchers("/ws-restaiurante/**").permitAll()
                 .requestMatchers(HttpMethod.OPTIONS, "/**").permitAll()
                 .requestMatchers(
+                        "/api/ping",
                         "/api/auth/login",
                         "/api/auth/check-admin",
                         "/api/auth/enviar-codigo-registro",
