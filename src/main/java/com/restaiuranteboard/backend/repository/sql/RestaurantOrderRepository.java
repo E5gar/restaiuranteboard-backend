@@ -20,6 +20,7 @@ public interface RestaurantOrderRepository extends JpaRepository<RestaurantOrder
     List<RestaurantOrder> findByClient_IdAndStatusNotInOrderByCreatedAtDesc(UUID clientId, Collection<String> statuses);
 
     List<RestaurantOrder> findByClient_IdOrderByCreatedAtDesc(UUID clientId);
+    boolean existsByClient_IdAndStatusIn(UUID clientId, Collection<String> statuses);
 
     @Query("SELECT DISTINCT o FROM RestaurantOrder o LEFT JOIN FETCH o.deliveryPerson WHERE o.client.id = :clientId AND o.status NOT IN :excluded ORDER BY o.createdAt DESC")
     List<RestaurantOrder> loadSeguimientoPendientes(
