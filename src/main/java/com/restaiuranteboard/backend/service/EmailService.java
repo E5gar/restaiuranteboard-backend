@@ -25,18 +25,19 @@ public class EmailService {
     ) {
         JavaMailSenderImpl mailSender = new JavaMailSenderImpl();
         mailSender.setHost("smtp.gmail.com");
-        mailSender.setPort(587);
+        mailSender.setPort(465);
         mailSender.setUsername(emisor);
         mailSender.setPassword(passwordSmtp);
 
         Properties props = mailSender.getJavaMailProperties();
         props.put("mail.transport.protocol", "smtp");
         props.put("mail.smtp.auth", "true");
-        props.put("mail.smtp.starttls.enable", "true"); 
-        props.put("mail.smtp.ssl.trust", "smtp.gmail.com"); 
-        props.put("mail.smtp.ssl.protocols", "TLSv1.2");
         
-        props.put("mail.debug", "true");
+        props.put("mail.smtp.ssl.enable", "true");
+        props.put("mail.smtp.socketFactory.port", "465");
+        props.put("mail.smtp.socketFactory.class", "javax.net.ssl.SSLSocketFactory");
+        props.put("mail.smtp.ssl.trust", "smtp.gmail.com");
+        props.put("mail.smtp.ssl.protocols", "TLSv1.2");
 
         String negocio = (nombreNegocio == null || nombreNegocio.isBlank()) ? "Restaiuranteboard" : nombreNegocio.trim();
         String subject;
@@ -81,17 +82,7 @@ public class EmailService {
         message.setSubject(subject);
         message.setText(body);
 
-        try {
-            System.out.println("====== INICIANDO ENVIO DE CORREO (DEBUG) ======");
-            System.out.println("Emisor: " + emisor);
-            System.out.println("Destino: " + destino);
-            mailSender.send(message);
-            System.out.println("====== CORREO ENVIADO EXITOSAMENTE ======");
-        } catch (Exception e) {
-            System.err.println("====== ERROR AL ENVIAR CORREO ======");
-            e.printStackTrace(); 
-            throw new RuntimeException("Fallo al enviar correo: " + e.getMessage(), e);
-        }
+        mailSender.send(message);
     }
 
     public void enviarCorreoTextoPlano(
@@ -107,33 +98,25 @@ public class EmailService {
         }
         JavaMailSenderImpl mailSender = new JavaMailSenderImpl();
         mailSender.setHost("smtp.gmail.com");
-        mailSender.setPort(587); 
+        mailSender.setPort(465);
         mailSender.setUsername(emisor);
         mailSender.setPassword(passwordSmtp);
         
         Properties props = mailSender.getJavaMailProperties();
         props.put("mail.transport.protocol", "smtp");
         props.put("mail.smtp.auth", "true");
-        props.put("mail.smtp.starttls.enable", "true"); 
-        props.put("mail.smtp.ssl.trust", "smtp.gmail.com"); 
+        
+        props.put("mail.smtp.ssl.enable", "true");
+        props.put("mail.smtp.socketFactory.port", "465");
+        props.put("mail.smtp.socketFactory.class", "javax.net.ssl.SSLSocketFactory");
+        props.put("mail.smtp.ssl.trust", "smtp.gmail.com");
         props.put("mail.smtp.ssl.protocols", "TLSv1.2");
-
-        props.put("mail.debug", "true");
 
         SimpleMailMessage message = new SimpleMailMessage();
         message.setFrom(emisor);
         message.setTo(destino);
         message.setSubject(asunto);
         message.setText(cuerpo);
-        
-        try {
-            System.out.println("====== INICIANDO ENVIO DE CORREO PLANO (DEBUG) ======");
-            mailSender.send(message);
-            System.out.println("====== CORREO ENVIADO EXITOSAMENTE ======");
-        } catch (Exception e) {
-            System.err.println("====== ERROR AL ENVIAR CORREO PLANO ======");
-            e.printStackTrace(); 
-            throw new RuntimeException("Fallo al enviar correo: " + e.getMessage(), e);
-        }
+        mailSender.send(message);
     }
 }
