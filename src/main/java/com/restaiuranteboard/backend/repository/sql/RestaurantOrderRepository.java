@@ -2,6 +2,7 @@ package com.restaiuranteboard.backend.repository.sql;
 
 import com.restaiuranteboard.backend.model.sql.RestaurantOrder;
 import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.JpaSpecificationExecutor;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 
@@ -9,7 +10,7 @@ import java.util.Collection;
 import java.util.List;
 import java.util.UUID;
 
-public interface RestaurantOrderRepository extends JpaRepository<RestaurantOrder, UUID> {
+public interface RestaurantOrderRepository extends JpaRepository<RestaurantOrder, UUID>, JpaSpecificationExecutor<RestaurantOrder> {
 
     List<RestaurantOrder> findByStatusOrderByCreatedAtDesc(String status);
 

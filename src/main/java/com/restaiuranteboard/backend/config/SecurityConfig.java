@@ -71,6 +71,7 @@ public class SecurityConfig {
                         "/api/estado_bases_datos"
                 ).permitAll()
                 .requestMatchers("/api/auth/crear-empleado").hasRole("ADMIN")
+                .requestMatchers("/api/admin/**").hasRole("ADMIN")
                 .requestMatchers("/api/**").authenticated()
                 .anyRequest().permitAll()
             )
