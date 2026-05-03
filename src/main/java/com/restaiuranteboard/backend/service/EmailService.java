@@ -15,6 +15,26 @@ public class EmailService {
         RECUPERACION_PASSWORD
     }
 
+    private JavaMailSenderImpl crearMailSender(String emisor, String passwordSmtp) {
+        JavaMailSenderImpl mailSender = new JavaMailSenderImpl();
+        mailSender.setHost("smtp.gmail.com");
+        mailSender.setPort(587);
+        mailSender.setUsername(emisor);
+        mailSender.setPassword(passwordSmtp);
+
+        Properties props = mailSender.getJavaMailProperties();
+        props.put("mail.transport.protocol", "smtp");
+        props.put("mail.smtp.auth", "true");
+        props.put("mail.smtp.starttls.enable", "true");
+        props.put("mail.smtp.starttls.required", "true");
+        props.put("mail.smtp.ssl.trust", "smtp.gmail.com");
+        props.put("mail.smtp.connectiontimeout", "10000");
+        props.put("mail.smtp.timeout", "10000");
+        props.put("mail.smtp.writetimeout", "10000");
+
+        return mailSender;
+    }
+
     public void enviarCodigoVerificacion(
             String destino,
             String codigo,
@@ -23,23 +43,10 @@ public class EmailService {
             TipoCodigoCorreo tipo,
             String nombreNegocio
     ) {
-        JavaMailSenderImpl mailSender = new JavaMailSenderImpl();
-        mailSender.setHost("smtp.gmail.com");
-        mailSender.setPort(465);
-        mailSender.setUsername(emisor);
-        mailSender.setPassword(passwordSmtp);
+        JavaMailSenderImpl mailSender = crearMailSender(emisor, passwordSmtp);
 
-        Properties props = mailSender.getJavaMailProperties();
-        props.put("mail.transport.protocol", "smtp");
-        props.put("mail.smtp.auth", "true");
-        
-        props.put("mail.smtp.ssl.enable", "true");
-        props.put("mail.smtp.socketFactory.port", "465");
-        props.put("mail.smtp.socketFactory.class", "javax.net.ssl.SSLSocketFactory");
-        props.put("mail.smtp.ssl.trust", "smtp.gmail.com");
-        props.put("mail.smtp.ssl.protocols", "TLSv1.2");
-
-        String negocio = (nombreNegocio == null || nombreNegocio.isBlank()) ? "Restaiuranteboard" : nombreNegocio.trim();
+        String negocio = (nombreNegocio == null || nombreNegocio.isBlank())
+                ? "Restaiuranteboard" : nombreNegocio.trim();
         String subject;
         String body;
 
@@ -72,7 +79,8 @@ public class EmailService {
             }
             default -> {
                 subject = "Código de verificación - " + negocio;
-                body = "Tu código de verificación es: " + codigo + "\nEste código expira en 1 minuto.";
+                body = "Tu código de verificación es: " + codigo
+                        + "\nEste código expira en 1 minuto.";
             }
         }
 
@@ -96,27 +104,15 @@ public class EmailService {
                 || passwordSmtp == null || passwordSmtp.isBlank()) {
             return;
         }
-        JavaMailSenderImpl mailSender = new JavaMailSenderImpl();
-        mailSender.setHost("smtp.gmail.com");
-        mailSender.setPort(465);
-        mailSender.setUsername(emisor);
-        mailSender.setPassword(passwordSmtp);
-        
-        Properties props = mailSender.getJavaMailProperties();
-        props.put("mail.transport.protocol", "smtp");
-        props.put("mail.smtp.auth", "true");
-        
-        props.put("mail.smtp.ssl.enable", "true");
-        props.put("mail.smtp.socketFactory.port", "465");
-        props.put("mail.smtp.socketFactory.class", "javax.net.ssl.SSLSocketFactory");
-        props.put("mail.smtp.ssl.trust", "smtp.gmail.com");
-        props.put("mail.smtp.ssl.protocols", "TLSv1.2");
+
+        JavaMailSenderImpl mailSender = crearMailSender(emisor, passwordSmtp);
 
         SimpleMailMessage message = new SimpleMailMessage();
         message.setFrom(emisor);
         message.setTo(destino);
         message.setSubject(asunto);
         message.setText(cuerpo);
+
         mailSender.send(message);
     }
 }
