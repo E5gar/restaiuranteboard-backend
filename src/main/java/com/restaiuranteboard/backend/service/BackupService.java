@@ -75,7 +75,8 @@ public class BackupService {
     }
 
     public BackupItemDto generate(String db) {
-        String key = prefixFor(db) + TS.format(LocalDateTime.now());
+        String extension = isMongo(db) ? ".archive.gz" : ".dump";
+        String key = prefixFor(db) + TS.format(LocalDateTime.now()) + extension;
         Path tmpDir = null;
         try {
             tmpDir = Files.createTempDirectory("rb-backup-");
