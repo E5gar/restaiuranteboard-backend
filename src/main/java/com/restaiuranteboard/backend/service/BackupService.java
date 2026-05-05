@@ -75,16 +75,15 @@ public class BackupService {
     }
 
     public BackupItemDto generate(String db) {
-        String key = prefixFor(db) + TS.format(LocalDateTime.now());
+        String extension = isMongo(db) ? ".archive.gz" : ".dump";
+        String key = prefixFor(db) + TS.format(LocalDateTime.now()) + extension;
         Path tmpDir = null;
         try {
             tmpDir = Files.createTempDirectory("rb-backup-");
-            Path file;
+            Path file = tmpDir.resolve(key); 
             if (isPostgres(db)) {
-                file = tmpDir.resolve(key + ".dump");
                 runPgDump(file);
             } else if (isMongo(db)) {
-                file = tmpDir.resolve(key + ".archive.gz");
                 runMongoDump(file);
             } else {
                 throw new IllegalArgumentException("DB inválida.");
