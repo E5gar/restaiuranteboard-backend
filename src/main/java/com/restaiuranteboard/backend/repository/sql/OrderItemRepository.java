@@ -5,6 +5,7 @@ import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 
+import java.time.LocalDateTime;
 import java.util.Collection;
 import java.util.List;
 import java.util.UUID;
@@ -25,4 +26,20 @@ public interface OrderItemRepository extends JpaRepository<OrderItem, Integer> {
     boolean existsByMongoProductIdAndOrderStatusIn(
             @Param("mongoId") String mongoProductId,
             @Param("statuses") Collection<String> statuses);
+
+    @Query(value = """
+            SELECT oi.mongo_product_id,
+                   COALESCE(SUM(oi.quantity), 0),
+                   COALESCE(SUM(oi.price_at_moment * oi.quantity), 0)
+            FROM order_items oi
+            JOIN orders o ON o.id = oi.order_id
+            WHERE o.status = 'ENTREGADO'
+            AND o.created_at >= :from
+            AND o.created_at < :toEx
+            GROUP BY oi.mongo_product_id
+            """, nativeQuery = true)
+    List<Object[]> aggregateVentasPorProductoEntregados(
+            @Param("from") LocalDateTime from,
+            @Param("toEx") LocalDateTime toExclusive
+    );
 }

@@ -2,6 +2,8 @@ package com.restaiuranteboard.backend.repository.sql;
 
 import com.restaiuranteboard.backend.model.sql.User;
 import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.Query;
+import org.springframework.data.repository.query.Param;
 
 import java.time.LocalDateTime;
 import java.util.List;
@@ -18,4 +20,14 @@ public interface UserRepository extends JpaRepository<User, UUID> {
     List<User> findByRole_NameAndIsDeletedFalse(String roleName);
 
     long countByRole_NameAndIsDeletedFalseAndCreatedAtBetween(String roleName, LocalDateTime from, LocalDateTime toExclusive);
+
+    @Query("SELECT COUNT(u) FROM User u WHERE u.isDeleted = false AND u.role.name = 'CLIENTE'")
+    long countActiveClientes();
+
+    @Query(value = """
+            SELECT u.id, u.full_name
+            FROM users u
+            WHERE u.id IN :ids
+            """, nativeQuery = true)
+    List<Object[]> findNamesByIds(@Param("ids") List<UUID> ids);
 }

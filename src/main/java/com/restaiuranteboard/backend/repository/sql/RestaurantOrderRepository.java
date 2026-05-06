@@ -6,6 +6,7 @@ import org.springframework.data.jpa.repository.JpaSpecificationExecutor;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 
+import java.time.LocalDateTime;
 import java.util.Collection;
 import java.util.List;
 import java.util.UUID;
@@ -32,4 +33,20 @@ public interface RestaurantOrderRepository extends JpaRepository<RestaurantOrder
     List<RestaurantOrder> loadSeguimientoFinalizados(
             @Param("clientId") UUID clientId,
             @Param("statuses") Collection<String> statuses);
+
+    @Query("SELECT COUNT(o) FROM RestaurantOrder o WHERE o.status = 'ENTREGADO' AND o.createdAt >= :from AND o.createdAt < :toEx")
+    long countEntregadosCreatedBetween(@Param("from") LocalDateTime from, @Param("toEx") LocalDateTime toExclusive);
+
+    @Query("SELECT COUNT(o) FROM RestaurantOrder o WHERE o.status = 'ENTREGADO' AND o.isRated = true AND o.createdAt >= :from AND o.createdAt < :toEx")
+    long countEntregadosRatedCreatedBetween(@Param("from") LocalDateTime from, @Param("toEx") LocalDateTime toExclusive);
+
+    @Query(value = """
+            SELECT o.client_id, COUNT(*) AS cnt, COALESCE(SUM(o.total_price), 0) AS gasto
+            FROM orders o
+            WHERE o.status = 'ENTREGADO'
+            AND o.created_at >= :from
+            AND o.created_at < :toEx
+            GROUP BY o.client_id
+            """, nativeQuery = true)
+    List<Object[]> aggregateEntregadosPorCliente(@Param("from") LocalDateTime from, @Param("toEx") LocalDateTime toExclusive);
 }

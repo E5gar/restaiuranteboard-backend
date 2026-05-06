@@ -2,11 +2,11 @@ package com.restaiuranteboard.backend.service.dashboard;
 
 import com.restaiuranteboard.backend.model.nosql.AiModelConfig;
 import com.restaiuranteboard.backend.model.nosql.Producto;
-import com.restaiuranteboard.backend.model.nosql.UserInteraction;
-import com.restaiuranteboard.backend.model.sql.*;
+import com.restaiuranteboard.backend.model.sql.LoginAudit;
+import com.restaiuranteboard.backend.model.sql.RestaurantOrder;
 import com.restaiuranteboard.backend.repository.nosql.AiModelConfigRepository;
 import com.restaiuranteboard.backend.repository.nosql.ProductoRepository;
-import com.restaiuranteboard.backend.repository.nosql.UserInteractionRepository;
+import com.restaiuranteboard.backend.repository.nosql.UserInteractionAnalyticsSupport;
 import com.restaiuranteboard.backend.repository.sql.*;
 import org.springframework.data.jpa.domain.Specification;
 import org.springframework.stereotype.Service;
@@ -19,7 +19,6 @@ import java.time.LocalDateTime;
 import java.time.temporal.ChronoUnit;
 import java.util.*;
 import java.util.stream.Collectors;
-import java.util.stream.Stream;
 
 @Service
 public class AdminDashboardService {
@@ -55,8 +54,9 @@ public class AdminDashboardService {
     private final UserRepository userRepository;
     private final LoginAuditRepository loginAuditRepository;
     private final IpLoginAttemptRepository ipLoginAttemptRepository;
-    private final UserInteractionRepository userInteractionRepository;
     private final AiModelConfigRepository aiModelConfigRepository;
+    private final DashboardOrderTupleSupport orderDashSupport;
+    private final UserInteractionAnalyticsSupport userInteractionAnalyticsSupport;
 
     public AdminDashboardService(
             RestaurantOrderRepository orderRepository,
@@ -69,8 +69,9 @@ public class AdminDashboardService {
             UserRepository userRepository,
             LoginAuditRepository loginAuditRepository,
             IpLoginAttemptRepository ipLoginAttemptRepository,
-            UserInteractionRepository userInteractionRepository,
-            AiModelConfigRepository aiModelConfigRepository
+            AiModelConfigRepository aiModelConfigRepository,
+            DashboardOrderTupleSupport orderDashSupport,
+            UserInteractionAnalyticsSupport userInteractionAnalyticsSupport
     ) {
         this.orderRepository = orderRepository;
         this.orderItemRepository = orderItemRepository;
@@ -82,8 +83,9 @@ public class AdminDashboardService {
         this.userRepository = userRepository;
         this.loginAuditRepository = loginAuditRepository;
         this.ipLoginAttemptRepository = ipLoginAttemptRepository;
-        this.userInteractionRepository = userInteractionRepository;
         this.aiModelConfigRepository = aiModelConfigRepository;
+        this.orderDashSupport = orderDashSupport;
+        this.userInteractionAnalyticsSupport = userInteractionAnalyticsSupport;
     }
 
     @Transactional(readOnly = true)
@@ -96,7 +98,7 @@ public class AdminDashboardService {
             String weatherCondition
     ) {
         Specification<RestaurantOrder> spec = baseSpec(from, toExclusive, status, momentOfDay, dayOfWeek, weatherCondition);
-        List<RestaurantOrder> orders = orderRepository.findAll(spec);
+        List<DashboardOrderTupleSupport.OrderDashRow> orders = orderDashSupport.fetch(spec);
 
         BigDecimal totalVentas = BigDecimal.ZERO;
         long nEntregados = 0;
@@ -117,20 +119,20 @@ public class AdminDashboardService {
 
         long pedidosEnCursoGlobal = orderRepository.count((root, q, cb) -> root.get("status").in(ESTADOS_EN_CURSO));
 
-        for (RestaurantOrder o : orders) {
-            String st = o.getStatus() != null ? o.getStatus() : "";
+        for (DashboardOrderTupleSupport.OrderDashRow o : orders) {
+            String st = o.status() != null ? o.status() : "";
             porEstado.merge(st, 1L, Long::sum);
             if ("ENTREGADO".equals(st)) {
                 nEntregados++;
-                BigDecimal tp = o.getTotalPrice() != null ? o.getTotalPrice() : BigDecimal.ZERO;
+                BigDecimal tp = o.totalPrice() != null ? o.totalPrice() : BigDecimal.ZERO;
                 totalVentas = totalVentas.add(tp);
-                LocalDateTime ca = o.getCreatedAt();
+                LocalDateTime ca = o.createdAt();
                 if (ca != null) {
                     String dayKey = ca.toLocalDate().toString();
                     ventasPorDia.merge(dayKey, tp, BigDecimal::add);
                     int h = ca.getHour();
                     ingresoPorHora.merge(h, tp, BigDecimal::add);
-                    String dw = o.getDayOfWeek();
+                    String dw = o.dayOfWeek();
                     if (dw != null && pedidosPorDiaSemana.containsKey(dw)) {
                         pedidosPorDiaSemana.merge(dw, 1L, Long::sum);
                     }
@@ -157,16 +159,18 @@ public class AdminDashboardService {
         double conversion = cerradosOCancel > 0 ? round2(100.0 * nEntregados / cerradosOCancel) : 0;
 
         long pedidosHoy = orders.stream()
-                .filter(o -> o.getCreatedAt() != null && hoy.equals(o.getCreatedAt().toLocalDate()))
+                .filter(o -> o.createdAt() != null && hoy.equals(o.createdAt().toLocalDate()))
                 .count();
         BigDecimal ingresoHoy = BigDecimal.ZERO;
-        for (RestaurantOrder o : orders) {
-            if (!"ENTREGADO".equals(o.getStatus())) continue;
-            LocalDate ref = o.getDeliveredAt() != null
-                    ? o.getDeliveredAt().toLocalDate()
-                    : (o.getCreatedAt() != null ? o.getCreatedAt().toLocalDate() : null);
+        for (DashboardOrderTupleSupport.OrderDashRow o : orders) {
+            if (!"ENTREGADO".equals(o.status())) {
+                continue;
+            }
+            LocalDate ref = o.deliveredAt() != null
+                    ? o.deliveredAt().toLocalDate()
+                    : (o.createdAt() != null ? o.createdAt().toLocalDate() : null);
             if (ref != null && ref.equals(hoy)) {
-                ingresoHoy = ingresoHoy.add(o.getTotalPrice() != null ? o.getTotalPrice() : BigDecimal.ZERO);
+                ingresoHoy = ingresoHoy.add(o.totalPrice() != null ? o.totalPrice() : BigDecimal.ZERO);
             }
         }
 
@@ -185,13 +189,17 @@ public class AdminDashboardService {
         }
 
         List<Map<String, Object>> climaVsMonto = new ArrayList<>();
-        for (RestaurantOrder o : orders) {
-            if (!"ENTREGADO".equals(o.getStatus()) || o.getWeatherTempC() == null) continue;
+        for (DashboardOrderTupleSupport.OrderDashRow o : orders) {
+            if (!"ENTREGADO".equals(o.status()) || o.weatherTempC() == null) {
+                continue;
+            }
             climaVsMonto.add(row(
-                    "tempC", o.getWeatherTempC(),
-                    "monto", o.getTotalPrice() != null ? o.getTotalPrice().doubleValue() : 0.0
+                    "tempC", o.weatherTempC(),
+                    "monto", o.totalPrice() != null ? o.totalPrice().doubleValue() : 0.0
             ));
-            if (climaVsMonto.size() >= 400) break;
+            if (climaVsMonto.size() >= 400) {
+                break;
+            }
         }
 
         Map<String, Object> kpis = new LinkedHashMap<>();
@@ -227,29 +235,40 @@ public class AdminDashboardService {
             boolean soloStockBajo,
             double umbralStockBajo
     ) {
-        List<Inventory> invAll = inventoryRepository.findAllByIsDeletedFalse();
-        List<Inventory> inv = invAll.stream()
-                .filter(i -> categoriaInsumo == null || categoriaInsumo.isBlank()
-                        || (i.getCategory() != null && i.getCategory().equalsIgnoreCase(categoriaInsumo.trim())))
-                .toList();
+        String tipoNorm = (tipoMovimiento == null || tipoMovimiento.isBlank()) ? null : tipoMovimiento.trim();
+        String catFilter = (categoriaInsumo == null || categoriaInsumo.isBlank()) ? null : categoriaInsumo.trim();
+
+        List<InvProj> inv = new ArrayList<>();
+        for (Object[] row : inventoryRepository.findAllStockProjection()) {
+            if (row[0] == null) {
+                continue;
+            }
+            int id = ((Number) row[0]).intValue();
+            String name = row[1] != null ? String.valueOf(row[1]) : "";
+            double stock = row[2] != null ? ((Number) row[2]).doubleValue() : 0;
+            double price = row[3] != null ? ((Number) row[3]).doubleValue() : 0;
+            String category = row[4] != null ? String.valueOf(row[4]) : "";
+            if (catFilter != null && (category.isBlank() || !category.equalsIgnoreCase(catFilter))) {
+                continue;
+            }
+            inv.add(new InvProj(id, name, stock, price, category));
+        }
 
         BigDecimal valorInventario = BigDecimal.ZERO;
         long stockBajo = 0;
         List<Map<String, Object>> stockPorInsumo = new ArrayList<>();
-        for (Inventory i : inv) {
-            double stock = i.getStockQuantity() != null ? i.getStockQuantity() : 0;
-            double price = i.getPrice() != null ? i.getPrice() : 0;
-            BigDecimal val = BigDecimal.valueOf(stock).multiply(BigDecimal.valueOf(price)).setScale(2, RoundingMode.HALF_UP);
+        for (InvProj i : inv) {
+            BigDecimal val = BigDecimal.valueOf(i.stock).multiply(BigDecimal.valueOf(i.price)).setScale(2, RoundingMode.HALF_UP);
             valorInventario = valorInventario.add(val);
-            if (stock < umbralStockBajo) {
+            if (i.stock < umbralStockBajo) {
                 stockBajo++;
             }
             stockPorInsumo.add(row(
-                    "id", i.getId(),
-                    "nombre", i.getName() != null ? i.getName() : "",
-                    "stock", stock,
+                    "id", i.id,
+                    "nombre", i.name,
+                    "stock", i.stock,
                     "umbral", umbralStockBajo,
-                    "categoria", i.getCategory() != null ? i.getCategory() : "",
+                    "categoria", i.category,
                     "valor", val.doubleValue()
             ));
         }
@@ -257,69 +276,55 @@ public class AdminDashboardService {
             stockPorInsumo = stockPorInsumo.stream().filter(m -> (Double) m.get("stock") < umbralStockBajo).toList();
         }
 
-        List<InventoryMovement> movs = movementRepository.findByCreatedAtBetween(from, toExclusive).stream()
-                .filter(m -> tipoMovimiento == null || tipoMovimiento.isBlank()
-                        || (m.getMovementType() != null && m.getMovementType().equalsIgnoreCase(tipoMovimiento.trim())))
-                .toList();
+        BigDecimal costoSalida = movementRepository.sumCostoSalida(from, toExclusive, tipoNorm);
+        if (costoSalida == null) {
+            costoSalida = BigDecimal.ZERO;
+        }
+        BigDecimal totalAbastecido = movementRepository.sumCostoAbastecimiento(from, toExclusive, tipoNorm);
+        if (totalAbastecido == null) {
+            totalAbastecido = BigDecimal.ZERO;
+        }
+        BigDecimal salidaQtyBd = movementRepository.sumCantidadSalida(from, toExclusive, tipoNorm);
+        double salidaQty = salidaQtyBd != null ? salidaQtyBd.doubleValue() : 0;
 
-        BigDecimal costoSalida = BigDecimal.ZERO;
-        BigDecimal totalAbastecido = BigDecimal.ZERO;
-        Map<String, BigDecimal> consumoPorInsumo = new HashMap<>();
-        Map<String, BigDecimal> abastPorSemana = new TreeMap<>();
+        Set<Integer> movedIds = new HashSet<>(movementRepository.findDistinctInventoryIdsMovedInRange(from, toExclusive, tipoNorm));
+        long sinMovimiento = inv.stream().filter(i -> !movedIds.contains(i.id)).count();
 
-        for (InventoryMovement m : movs) {
-            LocalDateTime ca = m.getCreatedAt();
-            BigDecimal qty = m.getQuantity() != null ? m.getQuantity() : BigDecimal.ZERO;
-            BigDecimal uc = m.getUnitCost() != null ? m.getUnitCost() : BigDecimal.ZERO;
-            if ("SALIDA".equalsIgnoreCase(String.valueOf(m.getMovementType()))) {
-                BigDecimal cost = qty.multiply(uc).setScale(2, RoundingMode.HALF_UP);
-                costoSalida = costoSalida.add(cost);
-                consumoPorInsumo.merge(String.valueOf(m.getInventoryId()), qty, BigDecimal::add);
-            }
-            if ("ABASTECIMIENTO".equalsIgnoreCase(String.valueOf(m.getMovementType()))) {
-                BigDecimal cost = qty.multiply(uc != null ? uc : BigDecimal.ZERO).setScale(2, RoundingMode.HALF_UP);
-                totalAbastecido = totalAbastecido.add(cost);
-                if (ca != null) {
-                    String sem = ca.toLocalDate().with(java.time.DayOfWeek.MONDAY).toString();
-                    abastPorSemana.merge(sem, cost, BigDecimal::add);
-                }
-            }
+        Map<String, BigDecimal> consumoCat = new HashMap<>();
+        for (Object[] r : movementRepository.sumConsumoPorCategoria(from, toExclusive, tipoNorm)) {
+            String cat = r[0] != null ? String.valueOf(r[0]) : "";
+            BigDecimal v = toBigDecimal(r[1]);
+            consumoCat.merge(cat.isEmpty() ? "" : cat, v, BigDecimal::add);
         }
 
-        double stockPromedio = inv.isEmpty() ? 0 : inv.stream().mapToDouble(i -> i.getStockQuantity() != null ? i.getStockQuantity() : 0).average().orElse(0);
-        double salidaQty = movs.stream()
-                .filter(m -> "SALIDA".equalsIgnoreCase(String.valueOf(m.getMovementType())))
-                .mapToDouble(m -> m.getQuantity() != null ? m.getQuantity().doubleValue() : 0)
-                .sum();
+        Map<String, BigDecimal> abastPorSemana = new TreeMap<>();
+        for (Object[] r : movementRepository.sumAbastecimientoPorSemana(from, toExclusive, tipoNorm)) {
+            if (r[0] == null) {
+                continue;
+            }
+            abastPorSemana.merge(String.valueOf(r[0]), toBigDecimal(r[1]), BigDecimal::add);
+        }
+
+        List<Map<String, Object>> topConsumo = new ArrayList<>();
+        for (Object[] r : movementRepository.topConsumoInsumo(from, toExclusive, tipoNorm)) {
+            if (r[0] == null) {
+                continue;
+            }
+            double c = r[1] != null ? ((Number) r[1]).doubleValue() : 0;
+            topConsumo.add(row("insumoId", String.valueOf(r[0]), "cantidad", c));
+        }
+
+        double stockPromedio = inv.isEmpty() ? 0 : inv.stream().mapToDouble(i -> i.stock).average().orElse(0);
         double rotacion = stockPromedio > 0 ? round2(salidaQty / stockPromedio) : 0;
 
-        LocalDateTime cutoff = from.minusDays(30);
-        Set<Integer> conMovimientoReciente = movs.stream()
-                .filter(m -> m.getCreatedAt() != null && m.getCreatedAt().isAfter(cutoff))
-                .map(InventoryMovement::getInventoryId)
-                .collect(Collectors.toSet());
-        long sinMovimiento = inv.stream()
-                .mapToLong(i -> conMovimientoReciente.contains(i.getId()) ? 0 : 1)
-                .sum();
-
-        Map<Integer, String> idToCat = inv.stream().collect(Collectors.toMap(Inventory::getId, i -> i.getCategory() != null ? i.getCategory() : "", (a, b) -> a));
-        Map<String, BigDecimal> consumoCat = new HashMap<>();
-        for (InventoryMovement m : movs) {
-            if (!"SALIDA".equalsIgnoreCase(String.valueOf(m.getMovementType()))) continue;
-            Integer invId = m.getInventoryId();
-            if (invId == null) continue;
-            BigDecimal qty = m.getQuantity() != null ? m.getQuantity() : BigDecimal.ZERO;
-            BigDecimal uc = m.getUnitCost() != null ? m.getUnitCost() : BigDecimal.ZERO;
-            BigDecimal cost = qty.multiply(uc).setScale(2, RoundingMode.HALF_UP);
-            String cat = idToCat.getOrDefault(invId, "OTRO");
-            consumoCat.merge(cat, cost, BigDecimal::add);
-        }
-
+        Map<String, Double> costoRecetaMap = costoRecetaPorProducto();
         List<Map<String, Object>> margenProductos = new ArrayList<>();
-        for (Producto p : productoRepository.findByIsDeletedFalse()) {
-            if (p.getId() == null) continue;
+        for (Producto p : productoRepository.findByIsDeletedFalseLight()) {
+            if (p.getId() == null) {
+                continue;
+            }
             double precio = p.getPrice() != null ? p.getPrice() : 0;
-            double costoReceta = costoRecetaUnitario(p.getId());
+            double costoReceta = costoRecetaMap.getOrDefault(p.getId(), 0.0);
             margenProductos.add(row(
                     "productoId", p.getId(),
                     "nombre", p.getName() != null ? p.getName() : "",
@@ -342,7 +347,7 @@ public class AdminDashboardService {
                 "kpis", kpis,
                 "stockPorInsumo", stockPorInsumo,
                 "movimientosAbastecimientoPorSemana", abastPorSemana,
-                "topConsumoInsumo", topN(consumoPorInsumo, 10),
+                "topConsumoInsumo", topConsumo,
                 "consumoPorCategoria", consumoCat,
                 "margenBrutoProductos", margenProductos.stream().limit(20).toList()
         );
@@ -357,41 +362,45 @@ public class AdminDashboardService {
             Double precioMin,
             Double precioMax
     ) {
-        List<RestaurantOrder> entregados = orderRepository.findAll(
-                Specification.where(RestaurantOrderSpecs.createdBetween(from, toExclusive))
-                        .and((root, q, cb) -> cb.equal(root.get("status"), "ENTREGADO"))
-        );
-        Set<UUID> ids = entregados.stream().map(RestaurantOrder::getId).collect(Collectors.toSet());
         Map<String, Integer> qtyPorProducto = new HashMap<>();
         Map<String, BigDecimal> ingresoPorProducto = new HashMap<>();
-        if (!ids.isEmpty()) {
-            for (OrderItem oi : orderItemRepository.findByRestaurantOrder_IdIn(ids)) {
-                String pid = oi.getMongoProductId();
-                int q = oi.getQuantity() != null ? oi.getQuantity() : 0;
-                qtyPorProducto.merge(pid, q, Integer::sum);
-                BigDecimal sub = oi.getPriceAtMoment() != null
-                        ? oi.getPriceAtMoment().multiply(BigDecimal.valueOf(q))
-                        : BigDecimal.ZERO;
-                ingresoPorProducto.merge(pid, sub, BigDecimal::add);
+        for (Object[] r : orderItemRepository.aggregateVentasPorProductoEntregados(from, toExclusive)) {
+            if (r[0] == null) {
+                continue;
             }
+            String pid = String.valueOf(r[0]);
+            int q = r[1] != null ? ((Number) r[1]).intValue() : 0;
+            BigDecimal ing = toBigDecimal(r[2]);
+            qtyPorProducto.put(pid, q);
+            ingresoPorProducto.put(pid, ing);
         }
 
-        Map<String, Producto> prodMap = productoRepository.findByIsDeletedFalse().stream()
+        Map<String, Producto> prodMap = productoRepository.findByIsDeletedFalseLight().stream()
                 .filter(p -> p.getId() != null)
                 .collect(Collectors.toMap(Producto::getId, p -> p, (a, b) -> a));
+
+        Map<String, Double> costoRecetaMap = costoRecetaPorProducto();
+        String catProdNorm = (categoriaProducto == null || categoriaProducto.isBlank()) ? null : categoriaProducto.trim();
 
         List<Map<String, Object>> ranking = new ArrayList<>();
         for (Map.Entry<String, Integer> e : qtyPorProducto.entrySet()) {
             Producto p = prodMap.get(e.getKey());
-            if (p == null) continue;
-            if (categoriaProducto != null && !categoriaProducto.isBlank()
-                    && (p.getCategory() == null || !p.getCategory().equalsIgnoreCase(categoriaProducto.trim()))) {
+            if (p == null) {
+                continue;
+            }
+            if (catProdNorm != null
+                    && (p.getCategory() == null || !p.getCategory().equalsIgnoreCase(catProdNorm))) {
                 continue;
             }
             double price = p.getPrice() != null ? p.getPrice() : 0;
-            if (precioMin != null && price < precioMin) continue;
-            if (precioMax != null && price > precioMax) continue;
-            double margen = price - costoRecetaUnitario(p.getId());
+            if (precioMin != null && price < precioMin) {
+                continue;
+            }
+            if (precioMax != null && price > precioMax) {
+                continue;
+            }
+            double costoU = costoRecetaMap.getOrDefault(p.getId(), 0.0);
+            double margen = price - costoU;
             ranking.add(row(
                     "productoId", p.getId(),
                     "nombre", p.getName() != null ? p.getName() : "",
@@ -410,18 +419,18 @@ public class AdminDashboardService {
                 .orElse("");
 
         Map<String, BigDecimal> ingresoPorCat = new HashMap<>();
-        for (Map<String, Object> row : ranking) {
-            String cat = String.valueOf(row.get("categoria"));
-            BigDecimal ing = BigDecimal.valueOf((Double) row.get("ingresos"));
+        for (Map<String, Object> rw : ranking) {
+            String cat = String.valueOf(rw.get("categoria"));
+            BigDecimal ing = BigDecimal.valueOf((Double) rw.get("ingresos"));
             ingresoPorCat.merge(cat, ing, BigDecimal::add);
         }
 
-        long activos = productoRepository.findByIsDeletedFalse().size();
+        long activos = productoRepository.countByIsDeletedFalse();
         Double avgStars = orderRatingRepository.avgStarsBetween(from, toExclusive);
         double avgStarsVal = avgStars != null ? round2(avgStars) : 0;
 
-        long entregadosCount = entregados.size();
-        long ratedCount = entregados.stream().filter(o -> Boolean.TRUE.equals(o.getIsRated())).count();
+        long entregadosCount = orderRepository.countEntregadosCreatedBetween(from, toExclusive);
+        long ratedCount = orderRepository.countEntregadosRatedCreatedBetween(from, toExclusive);
         double tasaCalificados = entregadosCount > 0 ? round2(100.0 * ratedCount / entregadosCount) : 0;
 
         String catLider = ingresoPorCat.entrySet().stream()
@@ -466,50 +475,60 @@ public class AdminDashboardService {
             Integer estrellasFiltro,
             Boolean soloRecurrentes
     ) {
-        long totalClientes = userRepository.findAll().stream()
-                .filter(u -> !u.isDeleted() && u.getRole() != null && "CLIENTE".equals(u.getRole().getName()))
-                .count();
+        long totalClientes = userRepository.countActiveClientes();
 
         LocalDateTime r0 = regFrom != null ? regFrom : from;
         LocalDateTime r1 = regToExclusive != null ? regToExclusive : toExclusive;
         long nuevos = userRepository.countByRole_NameAndIsDeletedFalseAndCreatedAtBetween("CLIENTE", r0, r1);
 
-        List<RestaurantOrder> entregados = orderRepository.findAll(
-                Specification.where(RestaurantOrderSpecs.createdBetween(from, toExclusive))
-                        .and((root, q, cb) -> cb.equal(root.get("status"), "ENTREGADO"))
-        );
-        Map<UUID, Long> pedidosPorCliente = entregados.stream()
-                .filter(o -> o.getClient() != null && o.getClient().getId() != null)
-                .collect(Collectors.groupingBy(o -> o.getClient().getId(), Collectors.counting()));
+        Map<UUID, Long> pedidosPorCliente = new HashMap<>();
+        Map<UUID, BigDecimal> gastoPorCliente = new HashMap<>();
+        for (Object[] row : orderRepository.aggregateEntregadosPorCliente(from, toExclusive)) {
+            UUID uid = toUuid(row[0]);
+            if (uid == null) {
+                continue;
+            }
+            long cnt = row[1] != null ? ((Number) row[1]).longValue() : 0L;
+            BigDecimal gasto = toBigDecimal(row[2]);
+            pedidosPorCliente.put(uid, cnt);
+            gastoPorCliente.put(uid, gasto);
+        }
+
         long recurrentes = pedidosPorCliente.values().stream().filter(c -> c > 1).count();
         double tasaRecurrencia = totalClientes > 0 ? round2(100.0 * recurrentes / totalClientes) : 0;
 
         Double avgStars = orderRatingRepository.avgStarsBetween(from, toExclusive);
-        double pedidosPromedio = totalClientes > 0 ? round2((double) entregados.size() / totalClientes) : 0;
+        long totalEntregados = pedidosPorCliente.values().stream().mapToLong(Long::longValue).sum();
+        double pedidosPromedio = totalClientes > 0 ? round2((double) totalEntregados / totalClientes) : 0;
 
-        Stream<Map.Entry<UUID, Long>> streamClientes = pedidosPorCliente.entrySet().stream();
-        if (Boolean.TRUE.equals(soloRecurrentes)) {
-            streamClientes = streamClientes.filter(e -> e.getValue() > 1);
-        }
-
-        List<Map<String, Object>> topGasto = streamClientes
-                .map(e -> {
-                    UUID uid = e.getKey();
-                    User u = userRepository.findById(uid).orElse(null);
-                    BigDecimal gasto = entregados.stream()
-                            .filter(o -> o.getClient() != null && uid.equals(o.getClient().getId()))
-                            .map(o -> o.getTotalPrice() != null ? o.getTotalPrice() : BigDecimal.ZERO)
-                            .reduce(BigDecimal.ZERO, BigDecimal::add);
-                    return row(
-                            "clienteId", uid.toString(),
-                            "nombre", u != null && u.getFullName() != null ? u.getFullName() : "",
-                            "pedidos", e.getValue(),
-                            "gastoTotal", gasto.setScale(2, RoundingMode.HALF_UP).doubleValue()
-                    );
-                })
-                .sorted((a, b) -> Double.compare((Double) b.get("gastoTotal"), (Double) a.get("gastoTotal")))
+        List<UUID> orderedIds = gastoPorCliente.entrySet().stream()
+                .filter(e -> !Boolean.TRUE.equals(soloRecurrentes) || pedidosPorCliente.getOrDefault(e.getKey(), 0L) > 1)
+                .sorted((a, b) -> b.getValue().compareTo(a.getValue()))
+                .map(Map.Entry::getKey)
                 .limit(10)
                 .toList();
+
+        Map<UUID, String> names = new HashMap<>();
+        if (!orderedIds.isEmpty()) {
+            for (Object[] nr : userRepository.findNamesByIds(orderedIds)) {
+                UUID id = toUuid(nr[0]);
+                if (id != null) {
+                    names.put(id, nr[1] != null ? String.valueOf(nr[1]) : "");
+                }
+            }
+        }
+
+        List<Map<String, Object>> topGasto = new ArrayList<>();
+        for (UUID uid : orderedIds) {
+            long ped = pedidosPorCliente.getOrDefault(uid, 0L);
+            BigDecimal gasto = gastoPorCliente.getOrDefault(uid, BigDecimal.ZERO);
+            topGasto.add(row(
+                    "clienteId", uid.toString(),
+                    "nombre", names.getOrDefault(uid, ""),
+                    "pedidos", ped,
+                    "gastoTotal", gasto.setScale(2, RoundingMode.HALF_UP).doubleValue()
+            ));
+        }
 
         Map<Integer, Long> distEstrellasCli = new TreeMap<>();
         for (int s = 1; s <= 5; s++) {
@@ -546,25 +565,25 @@ public class AdminDashboardService {
             UUID cajeroId,
             UUID repartidorId
     ) {
-        List<RestaurantOrder> list = orderRepository.findAll(RestaurantOrderSpecs.createdBetween(from, toExclusive));
+        List<DashboardOrderTupleSupport.OrderDashRow> list = orderDashSupport.fetch(RestaurantOrderSpecs.createdBetween(from, toExclusive));
         if (cajeroId != null) {
-            list = list.stream().filter(o -> o.getProcessedBy() != null && cajeroId.equals(o.getProcessedBy().getId())).toList();
+            list = list.stream().filter(o -> cajeroId.equals(o.processedById())).toList();
         }
         if (repartidorId != null) {
-            list = list.stream().filter(o -> o.getDeliveryPerson() != null && repartidorId.equals(o.getDeliveryPerson().getId())).toList();
+            list = list.stream().filter(o -> repartidorId.equals(o.deliveryPersonId())).toList();
         }
 
         List<Double> minutosEntrega = new ArrayList<>();
         List<Double> minutosDecisionCajaCancel = new ArrayList<>();
-        for (RestaurantOrder o : list) {
-            if ("ENTREGADO".equals(o.getStatus()) && o.getDeliveredAt() != null && o.getDeliveryAssignedAt() != null) {
-                long m = ChronoUnit.MINUTES.between(o.getDeliveryAssignedAt(), o.getDeliveredAt());
+        for (DashboardOrderTupleSupport.OrderDashRow o : list) {
+            if ("ENTREGADO".equals(o.status()) && o.deliveredAt() != null && o.deliveryAssignedAt() != null) {
+                long m = ChronoUnit.MINUTES.between(o.deliveryAssignedAt(), o.deliveredAt());
                 if (m >= 0 && m < 24 * 60) {
                     minutosEntrega.add((double) m);
                 }
             }
-            if ("CANCELADO".equals(o.getStatus()) && o.getProcessedBy() != null && o.getCreatedAt() != null && o.getProcessedAt() != null) {
-                long mc = ChronoUnit.MINUTES.between(o.getCreatedAt(), o.getProcessedAt());
+            if ("CANCELADO".equals(o.status()) && o.processedById() != null && o.createdAt() != null && o.processedAt() != null) {
+                long mc = ChronoUnit.MINUTES.between(o.createdAt(), o.processedAt());
                 if (mc >= 0 && mc < 7 * 24 * 60) {
                     minutosDecisionCajaCancel.add((double) mc);
                 }
@@ -577,23 +596,28 @@ public class AdminDashboardService {
         buckets.put("40-60", 0L);
         buckets.put("60+", 0L);
         for (Double m : minutosEntrega) {
-            if (m < 20) buckets.merge("0-20", 1L, Long::sum);
-            else if (m < 40) buckets.merge("20-40", 1L, Long::sum);
-            else if (m < 60) buckets.merge("40-60", 1L, Long::sum);
-            else buckets.merge("60+", 1L, Long::sum);
+            if (m < 20) {
+                buckets.merge("0-20", 1L, Long::sum);
+            } else if (m < 40) {
+                buckets.merge("20-40", 1L, Long::sum);
+            } else if (m < 60) {
+                buckets.merge("40-60", 1L, Long::sum);
+            } else {
+                buckets.merge("60+", 1L, Long::sum);
+            }
         }
 
         Map<String, Long> entregasPorRepartidor = list.stream()
-                .filter(o -> "ENTREGADO".equals(o.getStatus()) && o.getDeliveryPerson() != null)
-                .collect(Collectors.groupingBy(o -> o.getDeliveryPerson().getFullName() != null ? o.getDeliveryPerson().getFullName() : "—", Collectors.counting()));
+                .filter(o -> "ENTREGADO".equals(o.status()) && o.deliveryPersonId() != null)
+                .collect(Collectors.groupingBy(o -> o.deliveryPersonName() != null ? o.deliveryPersonName() : "—", Collectors.counting()));
 
         Map<String, Long> validadosPorCajero = list.stream()
-                .filter(o -> o.getProcessedBy() != null && POST_VALIDACION.contains(o.getStatus()))
-                .collect(Collectors.groupingBy(o -> o.getProcessedBy().getFullName() != null ? o.getProcessedBy().getFullName() : "—", Collectors.counting()));
+                .filter(o -> o.processedById() != null && POST_VALIDACION.contains(o.status()))
+                .collect(Collectors.groupingBy(o -> o.processedByName() != null ? o.processedByName() : "—", Collectors.counting()));
 
         Map<String, Long> rechazadosPorCajero = list.stream()
-                .filter(o -> o.getProcessedBy() != null && "CANCELADO".equals(o.getStatus()))
-                .collect(Collectors.groupingBy(o -> o.getProcessedBy().getFullName() != null ? o.getProcessedBy().getFullName() : "—", Collectors.counting()));
+                .filter(o -> o.processedById() != null && "CANCELADO".equals(o.status()))
+                .collect(Collectors.groupingBy(o -> o.processedByName() != null ? o.processedByName() : "—", Collectors.counting()));
 
         Set<String> nombresCajero = new HashSet<>();
         nombresCajero.addAll(validadosPorCajero.keySet());
@@ -614,16 +638,18 @@ public class AdminDashboardService {
 
         LocalDate hoy = LocalDate.now();
         long pedidosSuperaronValidacionHoy = list.stream()
-                .filter(o -> o.getCreatedAt() != null && hoy.equals(o.getCreatedAt().toLocalDate()))
-                .filter(o -> POST_VALIDACION.contains(o.getStatus()))
+                .filter(o -> o.createdAt() != null && hoy.equals(o.createdAt().toLocalDate()))
+                .filter(o -> POST_VALIDACION.contains(o.status()))
                 .count();
 
         Map<Integer, Map<String, Long>> porHoraEstado = new TreeMap<>();
-        for (RestaurantOrder o : list) {
-            if (o.getCreatedAt() == null || o.getStatus() == null) continue;
-            int hr = o.getCreatedAt().getHour();
+        for (DashboardOrderTupleSupport.OrderDashRow o : list) {
+            if (o.createdAt() == null || o.status() == null) {
+                continue;
+            }
+            int hr = o.createdAt().getHour();
             porHoraEstado.computeIfAbsent(hr, k -> new HashMap<>())
-                    .merge(o.getStatus(), 1L, Long::sum);
+                    .merge(o.status(), 1L, Long::sum);
         }
         List<Map<String, Object>> embudoPorHora = new ArrayList<>();
         for (Map.Entry<Integer, Map<String, Long>> e : porHoraEstado.entrySet()) {
@@ -648,14 +674,9 @@ public class AdminDashboardService {
 
     @Transactional(readOnly = true)
     public Map<String, Object> seguridad(LocalDateTime from, LocalDateTime toExclusive, String status, String rol) {
-        Stream<LoginAudit> auditStream = loginAuditRepository.findByAttemptedAtBetween(from, toExclusive).stream()
-                .filter(a -> status == null || status.isBlank() || status.equalsIgnoreCase(a.getStatus()));
-        if (rol != null && !rol.isBlank()) {
-            auditStream = auditStream.filter(a -> userRepository.findByEmail(a.getUserEmail())
-                    .map(u -> u.getRole() != null && rol.trim().equalsIgnoreCase(u.getRole().getName()))
-                    .orElse(false));
-        }
-        List<LoginAudit> audits = auditStream.toList();
+        String st = (status == null || status.isBlank()) ? null : status.trim();
+        String rl = (rol == null || rol.isBlank()) ? null : rol.trim();
+        List<LoginAudit> audits = loginAuditRepository.findForDashboard(from, toExclusive, st, rl);
 
         long total = audits.size();
         long success = audits.stream().filter(a -> "SUCCESS".equalsIgnoreCase(a.getStatus())).count();
@@ -664,9 +685,7 @@ public class AdminDashboardService {
         double tasaExito = total > 0 ? round2(100.0 * success / total) : 0;
 
         LocalDateTime now = LocalDateTime.now();
-        long ipsBloqueadas = ipLoginAttemptRepository.findAll().stream()
-                .filter(ip -> ip.getBlockedUntil() != null && ip.getBlockedUntil().isAfter(now))
-                .count();
+        long ipsBloqueadas = ipLoginAttemptRepository.countByBlockedUntilAfter(now);
 
         long usuariosUnicos = audits.stream()
                 .filter(a -> "SUCCESS".equalsIgnoreCase(a.getStatus()))
@@ -680,20 +699,24 @@ public class AdminDashboardService {
             porHora.put(h, new long[]{0, 0, 0});
         }
         for (LoginAudit a : audits) {
-            if (a.getAttemptedAt() == null) continue;
+            if (a.getAttemptedAt() == null) {
+                continue;
+            }
             int h = a.getAttemptedAt().getHour();
             long[] arr = porHora.get(h);
-            if ("SUCCESS".equalsIgnoreCase(a.getStatus())) arr[0]++;
-            else if ("FAILED".equalsIgnoreCase(a.getStatus())) arr[1]++;
-            else if ("BLOCKED".equalsIgnoreCase(a.getStatus())) arr[2]++;
+            if ("SUCCESS".equalsIgnoreCase(a.getStatus())) {
+                arr[0]++;
+            } else if ("FAILED".equalsIgnoreCase(a.getStatus())) {
+                arr[1]++;
+            } else if ("BLOCKED".equalsIgnoreCase(a.getStatus())) {
+                arr[2]++;
+            }
         }
 
-        List<Map<String, Object>> ipFallos = ipLoginAttemptRepository.findAll().stream()
-                .sorted(Comparator.comparing(IpLoginAttempt::getFailedAttempts, Comparator.nullsLast(Comparator.reverseOrder())))
-                .limit(10)
+        List<Map<String, Object>> ipFallos = ipLoginAttemptRepository.findTop10ByFailedAttempts().stream()
                 .map(ip -> row(
-                        "ip", ip.getIpAddress(),
-                        "fallos", ip.getFailedAttempts() != null ? ip.getFailedAttempts() : 0
+                        "ip", ip[0] != null ? String.valueOf(ip[0]) : "",
+                        "fallos", ip[1] != null ? ((Number) ip[1]).intValue() : 0
                 ))
                 .toList();
 
@@ -728,48 +751,32 @@ public class AdminDashboardService {
             String segmento,
             String userId
     ) {
-        List<UserInteraction> all = userInteractionRepository.findByTimestampBetween(from, toExclusive).stream()
-                .filter(i -> action == null || action.isBlank() || action.equalsIgnoreCase(i.getAction()))
-                .filter(i -> userId == null || userId.isBlank() || userId.equals(i.getUserId()))
-                .filter(i -> {
-                    if (condicionClima == null || condicionClima.isBlank()) return true;
-                    return i.getContext() != null && condicionClima.equalsIgnoreCase(i.getContext().getCondition());
-                })
-                .filter(i -> {
-                    if (segmento == null || segmento.isBlank()) return true;
-                    return i.getContext() != null && segmento.equalsIgnoreCase(i.getContext().getSegment());
-                })
-                .toList();
+        UserInteractionAnalyticsSupport.InteractionAgg agg = userInteractionAnalyticsSupport.aggregate(
+                from, toExclusive, action, condicionClima, segmento, userId
+        );
 
-        long total = all.size();
-        Map<String, Long> porAccion = all.stream().collect(Collectors.groupingBy(i -> i.getAction() != null ? i.getAction() : "?", Collectors.counting()));
+        long total = agg.total();
+        Map<String, Long> porAccion = agg.porAccion();
         long views = porAccion.getOrDefault("VIEW_DETAIL", 0L);
         long adds = porAccion.getOrDefault("ADD_TO_CART", 0L);
         double tasaAdd = views > 0 ? round2(100.0 * adds / views) : 0;
         long rejects = porAccion.getOrDefault("REJECT_RECOMMENDATION", 0L);
         double tasaReject = total > 0 ? round2(100.0 * rejects / total) : 0;
-        double dwellAvg = all.stream()
-                .filter(i -> i.getDwellTimeSeconds() != null)
-                .mapToInt(UserInteraction::getDwellTimeSeconds)
-                .average().orElse(0);
+        double dwellAvg = agg.dwellAvg();
 
-        Map<String, Long> porProducto = all.stream()
-                .filter(i -> i.getProductId() != null && !i.getProductId().isBlank())
-                .collect(Collectors.groupingBy(UserInteraction::getProductId, Collectors.counting()));
+        List<Map<String, Object>> topProductosInteraccion = agg.topProductosOrdered().stream()
+                .map(e -> row("productoId", e.getKey(), "interacciones", e.getValue()))
+                .toList();
+
+        String productoMasVistoNombre = "";
+        if (!agg.topProductosOrdered().isEmpty()) {
+            String pid = agg.topProductosOrdered().get(0).getKey();
+            productoMasVistoNombre = productoRepository.findById(pid).map(Producto::getName).orElse("");
+        }
 
         String slot1 = aiModelConfigRepository.findById("GLOBAL_AI_CONFIG")
                 .map(cfg -> cfg.getSlots().stream().filter(s -> s.getSlotNumber() == 1).findFirst().map(AiModelConfig.ModelSlot::getStatus).orElse("VACIO"))
                 .orElse("VACIO");
-
-        Map<String, Map<String, Long>> climaPorAccion = new LinkedHashMap<>();
-        Map<String, Long> porSegmento = new LinkedHashMap<>();
-        for (UserInteraction i : all) {
-            String cond = i.getContext() != null && i.getContext().getCondition() != null ? i.getContext().getCondition() : "—";
-            String act = i.getAction() != null ? i.getAction() : "?";
-            climaPorAccion.computeIfAbsent(cond, k -> new LinkedHashMap<>()).merge(act, 1L, Long::sum);
-            String seg = i.getContext() != null && i.getContext().getSegment() != null ? i.getContext().getSegment() : "—";
-            porSegmento.merge(seg, 1L, Long::sum);
-        }
 
         Map<String, Object> kpis = new LinkedHashMap<>();
         kpis.put("interaccionesTotales", total);
@@ -781,18 +788,51 @@ public class AdminDashboardService {
         return Map.of(
                 "kpis", kpis,
                 "distribucionAcciones", porAccion,
-                "topProductosInteraccion", topNString(porProducto, 10),
-                "productoMasVistoNombre", nombreProductoMasVisto(porProducto),
-                "porCondicionClimaYAccion", climaPorAccion,
-                "porSegmentoDia", porSegmento
+                "topProductosInteraccion", topProductosInteraccion,
+                "productoMasVistoNombre", productoMasVistoNombre,
+                "porCondicionClimaYAccion", agg.climaPorAccion(),
+                "porSegmentoDia", agg.porSegmento()
         );
     }
 
-    private String nombreProductoMasVisto(Map<String, Long> porProducto) {
-        return porProducto.entrySet().stream()
-                .max(Map.Entry.comparingByValue())
-                .flatMap(e -> productoRepository.findById(e.getKey()).map(Producto::getName))
-                .orElse("");
+    private Map<String, Double> costoRecetaPorProducto() {
+        Map<String, Double> m = new HashMap<>();
+        for (Object[] row : recipeRepository.sumCostoRecetaActivaPorProducto()) {
+            if (row[0] == null) {
+                continue;
+            }
+            String pid = String.valueOf(row[0]);
+            double v = 0;
+            if (row[1] != null) {
+                if (row[1] instanceof BigDecimal bd) {
+                    v = bd.doubleValue();
+                } else {
+                    v = ((Number) row[1]).doubleValue();
+                }
+            }
+            m.put(pid, v);
+        }
+        return m;
+    }
+
+    private static UUID toUuid(Object o) {
+        if (o == null) {
+            return null;
+        }
+        if (o instanceof UUID u) {
+            return u;
+        }
+        return UUID.fromString(o.toString());
+    }
+
+    private static BigDecimal toBigDecimal(Object o) {
+        if (o == null) {
+            return BigDecimal.ZERO;
+        }
+        if (o instanceof BigDecimal bd) {
+            return bd;
+        }
+        return BigDecimal.valueOf(((Number) o).doubleValue());
     }
 
     private Specification<RestaurantOrder> baseSpec(
@@ -808,35 +848,6 @@ public class AdminDashboardService {
                 .and(RestaurantOrderSpecs.momentOfDayEquals(momentOfDay))
                 .and(RestaurantOrderSpecs.dayOfWeekEquals(dayOfWeek))
                 .and(RestaurantOrderSpecs.weatherConditionEquals(weatherCondition));
-    }
-
-    private double costoRecetaUnitario(String mongoProductId) {
-        List<Recipe> lines = recipeRepository.findByMongoProductIdAndIsDeletedFalse(mongoProductId);
-        double sum = 0;
-        for (Recipe r : lines) {
-            Inventory ing = r.getIngredient();
-            if (ing == null) continue;
-            double unitCost = ing.getPrice() != null ? ing.getPrice() : 0;
-            double q = r.getQuantityToSubtract() != null ? r.getQuantityToSubtract() : 0;
-            sum += q * unitCost;
-        }
-        return sum;
-    }
-
-    private static List<Map<String, Object>> topN(Map<String, BigDecimal> map, int n) {
-        return map.entrySet().stream()
-                .sorted((a, b) -> b.getValue().compareTo(a.getValue()))
-                .limit(n)
-                .map(e -> row("insumoId", e.getKey(), "cantidad", e.getValue().doubleValue()))
-                .toList();
-    }
-
-    private static List<Map<String, Object>> topNString(Map<String, Long> map, int n) {
-        return map.entrySet().stream()
-                .sorted((a, b) -> Long.compare(b.getValue(), a.getValue()))
-                .limit(n)
-                .map(e -> row("productoId", e.getKey(), "interacciones", e.getValue()))
-                .toList();
     }
 
     private static Map<String, Object> row(Object... kv) {
@@ -857,15 +868,23 @@ public class AdminDashboardService {
         h.put("3", 0L);
         h.put("4+", 0L);
         for (long c : pedidosPorCliente.values()) {
-            if (c <= 1) h.merge("1", 1L, Long::sum);
-            else if (c == 2) h.merge("2", 1L, Long::sum);
-            else if (c == 3) h.merge("3", 1L, Long::sum);
-            else h.merge("4+", 1L, Long::sum);
+            if (c <= 1) {
+                h.merge("1", 1L, Long::sum);
+            } else if (c == 2) {
+                h.merge("2", 1L, Long::sum);
+            } else if (c == 3) {
+                h.merge("3", 1L, Long::sum);
+            } else {
+                h.merge("4+", 1L, Long::sum);
+            }
         }
         return h;
     }
 
     private static double round2(double v) {
         return Math.round(v * 100.0) / 100.0;
+    }
+
+    private record InvProj(int id, String name, double stock, double price, String category) {
     }
 }

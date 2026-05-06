@@ -2,6 +2,8 @@ package com.restaiuranteboard.backend.model.sql;
 
 import jakarta.persistence.*;
 import lombok.Data;
+import org.hibernate.annotations.JdbcTypeCode;
+import org.hibernate.type.SqlTypes;
 
 import java.time.LocalDateTime;
 
@@ -22,6 +24,7 @@ public class LoginAudit {
     @Column(name = "user_agent")
     private String userAgent;
 
+    @JdbcTypeCode(SqlTypes.VARCHAR)
     @Column(nullable = false, length = 20)
     private String status;
 

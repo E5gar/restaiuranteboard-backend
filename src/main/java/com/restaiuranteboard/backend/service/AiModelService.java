@@ -404,7 +404,7 @@ public class AiModelService {
             }
 
             normalized.sort(Comparator
-                    .<CrossSellItem>comparingInt(CrossSellItem::priority) // Especificamos <CrossSellItem> explícitamente
+                    .<CrossSellItem>comparingInt(CrossSellItem::priority)
                     .thenComparing(Comparator.comparing(CrossSellItem::confidence).reversed())
                     .thenComparing(Comparator.comparing(CrossSellItem::lift).reversed())
                     .thenComparing(Comparator.comparing((CrossSellItem item) -> factorRentabilidad(item.product())).reversed())

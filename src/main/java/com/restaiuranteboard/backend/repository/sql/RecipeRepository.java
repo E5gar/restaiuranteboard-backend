@@ -15,4 +15,14 @@ public interface RecipeRepository extends JpaRepository<Recipe, Integer> {
 
     @Query("SELECT DISTINCT r.mongoProductId FROM Recipe r WHERE r.ingredient.id = :invId AND r.isDeleted = false")
     List<String> findDistinctActiveMongoProductIdsByIngredientId(@Param("invId") Integer inventoryId);
+
+    @Query(value = """
+            SELECT r.mongo_product_id,
+                   COALESCE(SUM(r.quantity_to_subtract * i.price), 0)
+            FROM recipes r
+            JOIN inventory i ON i.id = r.ingredient_id
+            WHERE r.is_deleted = false
+            GROUP BY r.mongo_product_id
+            """, nativeQuery = true)
+    List<Object[]> sumCostoRecetaActivaPorProducto();
 }
