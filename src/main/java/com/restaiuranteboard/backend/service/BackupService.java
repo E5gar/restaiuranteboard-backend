@@ -3,20 +3,15 @@ package com.restaiuranteboard.backend.service;
 import com.restaiuranteboard.backend.dto.BackupItemDto;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
-import software.amazon.awssdk.core.ResponseInputStream;
-import software.amazon.awssdk.core.sync.RequestBody;
 import software.amazon.awssdk.services.s3.S3Client;
 import software.amazon.awssdk.services.s3.model.DeleteObjectRequest;
-import software.amazon.awssdk.services.s3.model.GetObjectRequest;
 import software.amazon.awssdk.services.s3.model.ListObjectsV2Request;
 import software.amazon.awssdk.services.s3.model.ListObjectsV2Response;
-import software.amazon.awssdk.services.s3.model.PutObjectRequest;
 import software.amazon.awssdk.services.s3.model.S3Object;
-
-import java.io.IOException;
-import java.io.InputStream;
-import java.nio.file.Files;
-import java.nio.file.Path;
+import org.springframework.web.client.RestTemplate;
+import org.springframework.http.HttpHeaders;
+import org.springframework.http.HttpEntity;
+import java.util.Map;
 import java.time.LocalDateTime;
 import java.time.ZoneId;
 import java.time.format.DateTimeFormatter;
@@ -35,6 +30,18 @@ public class BackupService {
     @Value("${app.backup.b2-bucket}")
     private String bucket;
 
+    @Value("${app.backup.b2-key-id}")
+    private String keyId;
+
+    @Value("${app.backup.b2-app-key}")
+    private String appKey;
+
+    @Value("${app.backup.b2-endpoint}")
+    private String endpoint;
+
+    @Value("${app.backup.encryption-key}")
+    private String encryptionKey;
+
     @Value("${spring.datasource.url}")
     private String jdbcUrl;
 
@@ -46,6 +53,15 @@ public class BackupService {
 
     @Value("${spring.data.mongodb.uri}")
     private String mongoUri;
+
+    @Value("${app.github.token:}")
+    private String githubToken;
+
+    @Value("${app.github.owner:}")
+    private String githubOwner;
+
+    @Value("${app.github.repo:}")
+    private String githubRepo;
 
     public BackupService(S3Client s3) {
         this.s3 = s3;
@@ -75,28 +91,60 @@ public class BackupService {
     }
 
     public BackupItemDto generate(String db) {
-        String extension = isMongo(db) ? ".archive.gz" : ".dump";
-        String key = prefixFor(db) + TS.format(LocalDateTime.now()) + extension;
-        Path tmpDir = null;
-        try {
-            tmpDir = Files.createTempDirectory("rb-backup-");
-            Path file = tmpDir.resolve(key); 
-            if (isPostgres(db)) {
-                runPgDump(file);
-            } else if (isMongo(db)) {
-                runMongoDump(file);
-            } else {
-                throw new IllegalArgumentException("DB inválida.");
-            }
-            put(key, file);
-            BackupItemDto dto = new BackupItemDto(key, Files.size(file), LocalDateTime.now());
-            safeDelete(file);
-            safeDeleteDir(tmpDir);
-            return dto;
-        } catch (IOException e) {
-            safeDeleteDir(tmpDir);
-            throw new IllegalArgumentException("No se pudo generar el backup.");
+        if (!isPostgres(db) && !isMongo(db)) {
+            throw new IllegalArgumentException("DB inválida.");
         }
+        if (githubToken == null || githubToken.isBlank() || githubOwner.isBlank() || githubRepo.isBlank()) {
+            throw new IllegalArgumentException("Credenciales de GitHub no configuradas en el servidor.");
+        }
+
+        PgConn c = PgConn.fromJdbc(jdbcUrl);
+        String extension = isMongo(db) ? ".archive.gz.enc" : ".dump.enc";
+        String timestamp = TS.format(LocalDateTime.now());
+        String key = prefixFor(db) + timestamp + extension;
+
+        RestTemplate restTemplate = new RestTemplate();
+        HttpHeaders headers = new HttpHeaders();
+        headers.set("Authorization", "Bearer " + githubToken);
+        headers.set("Accept", "application/vnd.github.v3+json");
+
+        Map<String, Object> b2 = new java.util.HashMap<>();
+        b2.put("bucket", bucket);
+        b2.put("key_id", keyId);
+        b2.put("app_key", appKey);
+        b2.put("endpoint", endpoint);
+
+        Map<String, Object> dbPayload = new java.util.HashMap<>();
+        Map<String, Object> pg = new java.util.HashMap<>();
+        pg.put("host", c.host);
+        pg.put("port", String.valueOf(c.port));
+        pg.put("name", c.db);
+        pg.put("user", pgUser);
+        pg.put("pass", pgPassword);
+        dbPayload.put("pg", pg);
+        dbPayload.put("mongo_uri", mongoUri);
+
+        Map<String, Object> clientPayload = new java.util.HashMap<>();
+        clientPayload.put("operation", "generate");
+        clientPayload.put("db_type", db);
+        clientPayload.put("backup_key", key);
+        clientPayload.put("encryption_key", encryptionKey);
+        clientPayload.put("b2", b2);
+        clientPayload.put("db", dbPayload);
+
+        Map<String, Object> payload = Map.of(
+                "event_type", "trigger-generate",
+                "client_payload", clientPayload
+        );
+        
+        HttpEntity<Map<String, Object>> request = new HttpEntity<>(payload, headers);
+        String url = String.format("https://api.github.com/repos/%s/%s/dispatches", githubOwner, githubRepo);
+        try {
+            restTemplate.postForEntity(url, request, String.class);
+        } catch (Exception e) {
+            throw new IllegalArgumentException("Error con GitHub Actions");
+        }
+        return new BackupItemDto(key, 0, LocalDateTime.now());
     }
 
     public void delete(String key) {
@@ -110,39 +158,53 @@ public class BackupService {
         if (key == null || key.isBlank()) {
             throw new IllegalArgumentException("Key requerida.");
         }
-        Path tmpDir = null;
-        try {
-            tmpDir = Files.createTempDirectory("rb-restore-");
-            Path file = tmpDir.resolve("restore.bin");
-            downloadTo(key, file);
-            if (isPostgres(db)) {
-                runPgRestore(file);
-            } else if (isMongo(db)) {
-                runMongoRestore(file);
-            } else {
-                throw new IllegalArgumentException("DB inválida.");
-            }
-            safeDelete(file);
-            safeDeleteDir(tmpDir);
-        } catch (IOException e) {
-            safeDeleteDir(tmpDir);
-            throw new IllegalArgumentException("No se pudo restaurar el backup.");
+        
+        if (githubToken == null || githubToken.isBlank() || githubOwner.isBlank() || githubRepo.isBlank()) {
+            throw new IllegalArgumentException("Credenciales de GitHub no configuradas en el servidor.");
         }
-    }
 
-    private void put(String keyBase, Path file) {
-        PutObjectRequest req = PutObjectRequest.builder()
-                .bucket(bucket)
-                .key(keyBase)
-                .contentType("application/octet-stream")
-                .build();
-        s3.putObject(req, RequestBody.fromFile(file));
-    }
+        RestTemplate restTemplate = new RestTemplate();
+        HttpHeaders headers = new HttpHeaders();
+        headers.set("Authorization", "Bearer " + githubToken);
+        headers.set("Accept", "application/vnd.github.v3+json");
 
-    private void downloadTo(String key, Path file) throws IOException {
-        GetObjectRequest req = GetObjectRequest.builder().bucket(bucket).key(key).build();
-        try (ResponseInputStream<?> in = s3.getObject(req)) {
-            Files.copy(in, file);
+        PgConn c = PgConn.fromJdbc(jdbcUrl);
+        Map<String, Object> b2 = new java.util.HashMap<>();
+        b2.put("bucket", bucket);
+        b2.put("key_id", keyId);
+        b2.put("app_key", appKey);
+        b2.put("endpoint", endpoint);
+
+        Map<String, Object> dbPayload = new java.util.HashMap<>();
+        Map<String, Object> pg = new java.util.HashMap<>();
+        pg.put("host", c.host);
+        pg.put("port", String.valueOf(c.port));
+        pg.put("name", c.db);
+        pg.put("user", pgUser);
+        pg.put("pass", pgPassword);
+        dbPayload.put("pg", pg);
+        dbPayload.put("mongo_uri", mongoUri);
+
+        Map<String, Object> clientPayload = new java.util.HashMap<>();
+        clientPayload.put("operation", "restore");
+        clientPayload.put("db_type", db);
+        clientPayload.put("backup_key", key);
+        clientPayload.put("encryption_key", encryptionKey);
+        clientPayload.put("b2", b2);
+        clientPayload.put("db", dbPayload);
+
+        Map<String, Object> payload = Map.of(
+            "event_type", "trigger-restore",
+            "client_payload", clientPayload
+        );
+
+        HttpEntity<Map<String, Object>> request = new HttpEntity<>(payload, headers);
+        String url = String.format("https://api.github.com/repos/%s/%s/dispatches", githubOwner, githubRepo);
+
+        try {
+            restTemplate.postForEntity(url, request, String.class);
+        } catch (Exception e) {
+            throw new IllegalArgumentException("Error con GitHub Actions");
         }
     }
 
@@ -158,102 +220,6 @@ public class BackupService {
 
     private boolean isMongo(String db) {
         return db != null && db.equalsIgnoreCase("mongodb");
-    }
-
-    private void runPgDump(Path out) {
-        PgConn c = PgConn.fromJdbc(jdbcUrl);
-        List<String> cmd = List.of(
-                "pg_dump",
-                "-Fc",
-                "-h", c.host,
-                "-p", String.valueOf(c.port),
-                "-U", pgUser,
-                "-f", out.toAbsolutePath().toString(),
-                c.db
-        );
-        ProcessBuilder pb = new ProcessBuilder(cmd);
-        pb.environment().put("PGPASSWORD", pgPassword != null ? pgPassword : "");
-        pb.redirectErrorStream(true);
-        runOrThrow(pb, "pg_dump");
-    }
-
-    private void runPgRestore(Path in) {
-        PgConn c = PgConn.fromJdbc(jdbcUrl);
-        List<String> cmd = List.of(
-                "pg_restore",
-                "--clean",
-                "--if-exists",
-                "-h", c.host,
-                "-p", String.valueOf(c.port),
-                "-U", pgUser,
-                "-d", c.db,
-                in.toAbsolutePath().toString()
-        );
-        ProcessBuilder pb = new ProcessBuilder(cmd);
-        pb.environment().put("PGPASSWORD", pgPassword != null ? pgPassword : "");
-        pb.redirectErrorStream(true);
-        runOrThrow(pb, "pg_restore");
-    }
-
-    private void runMongoDump(Path out) {
-        List<String> cmd = List.of(
-                "mongodump",
-                "--uri=" + (mongoUri != null ? mongoUri : ""),
-                "--archive=" + out.toAbsolutePath(),
-                "--gzip"
-        );
-        ProcessBuilder pb = new ProcessBuilder(cmd);
-        pb.redirectErrorStream(true);
-        runOrThrow(pb, "mongodump");
-    }
-
-    private void runMongoRestore(Path in) {
-        List<String> cmd = List.of(
-                "mongorestore",
-                "--uri=" + (mongoUri != null ? mongoUri : ""),
-                "--archive=" + in.toAbsolutePath(),
-                "--gzip",
-                "--drop"
-        );
-        ProcessBuilder pb = new ProcessBuilder(cmd);
-        pb.redirectErrorStream(true);
-        runOrThrow(pb, "mongorestore");
-    }
-
-    private void runOrThrow(ProcessBuilder pb, String tool) {
-        try {
-            Process p = pb.start();
-            try (InputStream is = p.getInputStream()) {
-                is.transferTo(OutputStreamNull.INSTANCE);
-            }
-            int code = p.waitFor();
-            if (code != 0) {
-                throw new IllegalArgumentException("Fallo " + tool + ".");
-            }
-        } catch (IOException e) {
-            throw new IllegalArgumentException(tool + " no disponible.");
-        } catch (InterruptedException e) {
-            Thread.currentThread().interrupt();
-            throw new IllegalArgumentException("Operación interrumpida.");
-        }
-    }
-
-    private void safeDelete(Path p) {
-        try {
-            if (p != null) Files.deleteIfExists(p);
-        } catch (IOException ignored) {
-        }
-    }
-
-    private void safeDeleteDir(Path dir) {
-        if (dir == null) return;
-        try {
-            try (var st = Files.list(dir)) {
-                st.forEach(this::safeDelete);
-            }
-        } catch (IOException ignored) {
-        }
-        safeDelete(dir);
     }
 
     private static final class PgConn {
@@ -296,12 +262,5 @@ public class BackupService {
         }
     }
 
-    private static final class OutputStreamNull extends java.io.OutputStream {
-        static final OutputStreamNull INSTANCE = new OutputStreamNull();
-
-        @Override
-        public void write(int b) {
-        }
-    }
 }
 
