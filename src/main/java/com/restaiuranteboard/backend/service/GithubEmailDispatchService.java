@@ -93,17 +93,25 @@ public class GithubEmailDispatchService {
 
             RestTemplate restTemplate = new RestTemplate();
             HttpHeaders headers = new HttpHeaders();
-            headers.set("Authorization", "Bearer " + githubToken);
+            headers.set("Authorization", "Bearer " + githubToken.trim());
             headers.set("Accept", "application/vnd.github.v3+json");
+            headers.set("Content-Type", "application/json");
             HttpEntity<Map<String, Object>> request = new HttpEntity<>(payload, headers);
             String url = String.format("https://api.github.com/repos/%s/%s/dispatches", githubOwner, githubRepo);
+            
+            System.out.println("Enviando despacho a GitHub: " + url);
             restTemplate.postForEntity(url, request, String.class);
+            System.out.println("Despacho enviado con éxito (204).");
+
+        } catch (org.springframework.web.client.HttpStatusCodeException e) {
+            String errorBody = e.getResponseBodyAsString();
+            System.err.println("ERROR DE GITHUB API (" + e.getStatusCode() + "): " + errorBody);
+            markFailed(trackingId, "GitHub API: " + errorBody);
+            throw new IllegalStateException("GitHub respondió: " + errorBody);
         } catch (Exception e) {
+            e.printStackTrace(); 
             markFailed(trackingId, e.getMessage());
-            throw new IllegalStateException(
-                    e.getMessage() != null && !e.getMessage().isBlank()
-                            ? e.getMessage()
-                            : "Error al encolar envío de correo.");
+            throw new IllegalStateException("Error interno: " + e.getMessage());
         }
     }
 
