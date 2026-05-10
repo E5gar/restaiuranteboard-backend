@@ -5,6 +5,8 @@ import com.restaiuranteboard.backend.repository.nosql.ConfiguracionSistemaReposi
 import com.restaiuranteboard.backend.repository.nosql.EmailDispatchLogRepository;
 import com.restaiuranteboard.backend.model.nosql.EmailDispatchLog;
 import com.restaiuranteboard.backend.repository.sql.UserRepository;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.messaging.simp.SimpMessagingTemplate;
 import org.springframework.stereotype.Service;
@@ -16,6 +18,8 @@ import java.util.Optional;
 
 @Service
 public class EmailDispatchWebhookService {
+
+    private static final Logger log = LoggerFactory.getLogger(EmailDispatchWebhookService.class);
 
     private final EmailDispatchLogRepository logRepository;
     private final ConfiguracionSistemaRepository configRepository;
@@ -70,6 +74,7 @@ public class EmailDispatchWebhookService {
         log.setErrorDetail(errorDetail);
         log.setUpdatedAt(Instant.now());
         logRepository.save(log);
+        log.info("Email callback {} status={} smtpCode={}", trackingId, status, smtpCode);
 
         if ("SUCCESS".equalsIgnoreCase(status)) {
             configRepository.findById("GLOBAL_CONFIG").ifPresent(cfg -> {

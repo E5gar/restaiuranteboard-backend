@@ -4,6 +4,7 @@ import com.restaiuranteboard.backend.model.nosql.ConfiguracionSistema;
 import com.restaiuranteboard.backend.model.sql.VerificationCode;
 import com.restaiuranteboard.backend.repository.nosql.ConfiguracionSistemaRepository;
 import com.restaiuranteboard.backend.repository.sql.VerificationCodeRepository;
+import com.restaiuranteboard.backend.exception.EmailDispatchException;
 import com.restaiuranteboard.backend.service.EmailService;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.ResponseEntity;
@@ -109,6 +110,11 @@ public class ConfiguracionController {
                     null
             );
             return ResponseEntity.ok(Map.of("message", "Código enviado correctamente a " + email));
+        } catch (EmailDispatchException e) {
+            return ResponseEntity.internalServerError().body(Map.of(
+                    "message",
+                    "Error al enviar el correo. Ref: " + e.trackingId() + " (" + e.stage() + ")"
+            ));
         } catch (Exception e) {
             return ResponseEntity.internalServerError().body(Map.of("message", "No se pudo enviar el correo. Verifica tu contraseña de aplicación."));
         }

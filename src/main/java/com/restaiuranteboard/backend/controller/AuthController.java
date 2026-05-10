@@ -6,6 +6,7 @@ import com.restaiuranteboard.backend.service.EmailService;
 import com.restaiuranteboard.backend.security.JwtService;
 import com.restaiuranteboard.backend.model.nosql.ConfiguracionSistema;
 import com.restaiuranteboard.backend.repository.nosql.ConfiguracionSistemaRepository;
+import com.restaiuranteboard.backend.exception.EmailDispatchException;
 import com.restaiuranteboard.backend.service.ShoppingCartService;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.HttpStatus;
@@ -414,6 +415,11 @@ public class AuthController {
                     null
             );
             return ResponseEntity.ok(Map.of("message", "Código enviado al correo."));
+        } catch (EmailDispatchException e) {
+            return ResponseEntity.internalServerError().body(Map.of(
+                    "message",
+                    "Error al enviar el correo. Ref: " + e.trackingId() + " (" + e.stage() + ")"
+            ));
         } catch (Exception e) {
             return ResponseEntity.internalServerError().body(Map.of("message", "Error al enviar el correo."));
         }

@@ -1,9 +1,12 @@
 package com.restaiuranteboard.backend.service;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.restaiuranteboard.backend.exception.EmailDispatchException;
 import com.restaiuranteboard.backend.model.nosql.EmailDispatchLog;
 import com.restaiuranteboard.backend.repository.nosql.EmailDispatchLogRepository;
 import com.restaiuranteboard.backend.util.AesGcmPayloadCipher;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.HttpEntity;
 import org.springframework.http.HttpHeaders;
@@ -18,6 +21,8 @@ import java.util.UUID;
 
 @Service
 public class GithubEmailDispatchService {
+
+    private static final Logger log = LoggerFactory.getLogger(GithubEmailDispatchService.class);
 
     private final EmailDispatchLogRepository logRepository;
     private final ObjectMapper objectMapper;
@@ -71,16 +76,19 @@ public class GithubEmailDispatchService {
         inner.put("callback_url", normalizeBaseUrl(publicApiBaseUrl) + "/api/webhooks/email-dispatch");
         inner.put("callback_secret", webhookSecret != null ? webhookSecret : "");
 
-        persistPending(trackingId, to, subject, notifyUserId);
+        persistPending(trackingId, to, from, subject, notifyUserId);
 
         try {
+            updateStage(trackingId, "SERIALIZE", "DISPATCHING", null);
             String json = objectMapper.writeValueAsString(inner);
+            updateStage(trackingId, "ENCRYPT", "DISPATCHING", null);
             byte[] key = parseHexKey(dispatchKeyHex);
             byte[] enc = AesGcmPayloadCipher.encryptUtf8(json, key);
             String blob = Base64.getEncoder().encodeToString(enc);
 
             if (githubToken == null || githubToken.isBlank() || githubOwner.isBlank() || githubRepo.isBlank()) {
-                throw new IllegalStateException("GitHub no configurado.");
+                updateStage(trackingId, "GITHUB_CONFIG", "DISPATCH_ERROR", "GitHub no configurado.");
+                throw new EmailDispatchException(trackingId, "GITHUB_CONFIG", "GitHub no configurado.", null);
             }
 
             Map<String, Object> clientPayload = new HashMap<>();
@@ -98,39 +106,51 @@ public class GithubEmailDispatchService {
             headers.set("Content-Type", "application/json");
             HttpEntity<Map<String, Object>> request = new HttpEntity<>(payload, headers);
             String url = String.format("https://api.github.com/repos/%s/%s/dispatches", githubOwner, githubRepo);
-            
-            System.out.println("Enviando despacho a GitHub: " + url);
+            updateStage(trackingId, "GITHUB_DISPATCH", "DISPATCHING", null);
+            log.info("Email dispatch {} -> GitHub repo {}/{} event trigger-send-email", trackingId, githubOwner, githubRepo);
             restTemplate.postForEntity(url, request, String.class);
-            System.out.println("Despacho enviado con éxito (204).");
+            updateStage(trackingId, "GITHUB_DISPATCH", "DISPATCHED", null);
+            log.info("Email dispatch {} encolado en GitHub", trackingId);
 
         } catch (org.springframework.web.client.HttpStatusCodeException e) {
             String errorBody = e.getResponseBodyAsString();
-            System.err.println("ERROR DE GITHUB API (" + e.getStatusCode() + "): " + errorBody);
-            markFailed(trackingId, "GitHub API: " + errorBody);
-            throw new IllegalStateException("GitHub respondió: " + errorBody);
+            String msg = "GitHub API " + e.getStatusCode().value() + ": " + (errorBody != null ? errorBody : "");
+            updateStage(trackingId, "GITHUB_HTTP", "DISPATCH_ERROR", msg);
+            log.error("Email dispatch {} fallo GitHub API {}", trackingId, e.getStatusCode().value());
+            throw new EmailDispatchException(trackingId, "GITHUB_HTTP", "Error al encolar correo.", e);
         } catch (Exception e) {
-            e.printStackTrace(); 
-            markFailed(trackingId, e.getMessage());
-            throw new IllegalStateException("Error interno: " + e.getMessage());
+            String msg = e.getMessage() != null ? e.getMessage() : e.getClass().getSimpleName();
+            updateStage(trackingId, "INTERNAL", "DISPATCH_ERROR", msg);
+            log.error("Email dispatch {} fallo interno: {}", trackingId, msg);
+            throw new EmailDispatchException(trackingId, "INTERNAL", "Error al encolar correo.", e);
         }
     }
 
-    private void persistPending(String trackingId, String to, String subject, String notifyUserId) {
+    private void persistPending(String trackingId, String to, String from, String subject, String notifyUserId) {
         EmailDispatchLog log = new EmailDispatchLog();
         log.setTrackingId(trackingId);
         log.setToEmail(to);
+        log.setFromEmail(from);
         log.setSubject(subject);
         log.setNotifyUserId(notifyUserId);
         log.setStatus("PENDING");
+        log.setStage("CREATED");
+        log.setGithubOwner(githubOwner);
+        log.setGithubRepo(githubRepo);
         log.setCreatedAt(Instant.now());
         log.setUpdatedAt(Instant.now());
         logRepository.save(log);
     }
 
-    private void markFailed(String trackingId, String detail) {
+    private void updateStage(String trackingId, String stage, String status, String errorDetail) {
         logRepository.findById(trackingId).ifPresent(l -> {
-            l.setStatus("FAILURE");
-            l.setErrorDetail(detail);
+            l.setStage(stage);
+            if (status != null) {
+                l.setStatus(status);
+            }
+            if (errorDetail != null && !errorDetail.isBlank()) {
+                l.setErrorDetail(errorDetail.length() > 8000 ? errorDetail.substring(0, 8000) : errorDetail);
+            }
             l.setUpdatedAt(Instant.now());
             logRepository.save(l);
         });

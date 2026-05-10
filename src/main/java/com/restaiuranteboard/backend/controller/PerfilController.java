@@ -7,6 +7,7 @@ import com.restaiuranteboard.backend.repository.nosql.ConfiguracionSistemaReposi
 import com.restaiuranteboard.backend.repository.sql.RestaurantOrderRepository;
 import com.restaiuranteboard.backend.repository.sql.UserRepository;
 import com.restaiuranteboard.backend.repository.sql.VerificationCodeRepository;
+import com.restaiuranteboard.backend.exception.EmailDispatchException;
 import com.restaiuranteboard.backend.service.EmailService;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
@@ -135,6 +136,11 @@ public class PerfilController {
                     config.getNombreNegocio(),
                     user.getId() != null ? user.getId().toString() : null
             );
+        } catch (EmailDispatchException e) {
+            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).body(Map.of(
+                    "message",
+                    "Error al enviar el correo. Ref: " + e.trackingId() + " (" + e.stage() + ")"
+            ));
         } catch (Exception e) {
             return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).body(Map.of("message", "Error al enviar el correo."));
         }
