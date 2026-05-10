@@ -74,7 +74,7 @@ public class EmailDispatchWebhookService {
         log.setErrorDetail(errorDetail);
         log.setUpdatedAt(Instant.now());
         logRepository.save(log);
-        log.info("Email callback {} status={} smtpCode={}", trackingId, status, smtpCode);
+        EmailDispatchWebhookService.log.info("Email callback {} status={} smtpCode={}", trackingId, status, smtpCode);
 
         if ("SUCCESS".equalsIgnoreCase(status)) {
             configRepository.findById("GLOBAL_CONFIG").ifPresent(cfg -> {
