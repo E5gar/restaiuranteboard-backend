@@ -90,7 +90,24 @@ public class BackupService {
         return out;
     }
 
+    public void generatePairedBackups() {
+        String timestamp = TS.format(LocalDateTime.now());
+        generateWithTimestamp("postgresql", timestamp);
+        generateWithTimestamp("mongodb", timestamp);
+    }
+
+    public java.util.Map<String, String> generatePairedBackupKeys() {
+        String timestamp = TS.format(LocalDateTime.now());
+        String pg = generateWithTimestamp("postgresql", timestamp).key();
+        String mg = generateWithTimestamp("mongodb", timestamp).key();
+        return java.util.Map.of("postgresKey", pg, "mongoKey", mg);
+    }
+
     public BackupItemDto generate(String db) {
+        return generateWithTimestamp(db, TS.format(LocalDateTime.now()));
+    }
+
+    public BackupItemDto generateWithTimestamp(String db, String timestamp) {
         if (!isPostgres(db) && !isMongo(db)) {
             throw new IllegalArgumentException("DB inválida.");
         }
@@ -100,7 +117,6 @@ public class BackupService {
 
         PgConn c = PgConn.fromJdbc(jdbcUrl);
         String extension = isMongo(db) ? ".archive.gz.enc" : ".dump.enc";
-        String timestamp = TS.format(LocalDateTime.now());
         String key = prefixFor(db) + timestamp + extension;
 
         RestTemplate restTemplate = new RestTemplate();

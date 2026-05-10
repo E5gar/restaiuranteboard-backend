@@ -68,7 +68,9 @@ public class SecurityConfig {
                         "/api/auth/reset-password",
                         "/api/auth/ip-status",
                         "/api/configuracion/**",
-                        "/api/estado_bases_datos"
+                        "/api/estado_bases_datos",
+                        "/api/webhooks/backup-workflow",
+                        "/api/webhooks/backup-cron"
                 ).permitAll()
                 .requestMatchers("/api/auth/crear-empleado").hasRole("ADMIN")
                 .requestMatchers("/api/admin/**").hasRole("ADMIN")
