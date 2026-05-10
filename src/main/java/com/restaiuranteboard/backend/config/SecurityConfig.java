@@ -39,9 +39,11 @@ public class SecurityConfig {
     }
 
     private final JwtAuthenticationFilter jwtAuthenticationFilter;
+    private final MaintenanceFilter maintenanceFilter;
 
-    public SecurityConfig(JwtAuthenticationFilter jwtAuthenticationFilter) {
+    public SecurityConfig(JwtAuthenticationFilter jwtAuthenticationFilter, MaintenanceFilter maintenanceFilter) {
         this.jwtAuthenticationFilter = jwtAuthenticationFilter;
+        this.maintenanceFilter = maintenanceFilter;
     }
 
     @Bean
@@ -72,13 +74,16 @@ public class SecurityConfig {
                         "/api/client-errors/report",
                         "/api/webhooks/backup-workflow",
                         "/api/webhooks/backup-cron",
-                        "/api/webhooks/email-dispatch"
+                        "/api/webhooks/email-dispatch",
+                        "/api/webhooks/maintenance-end",
+                        "/api/webhooks/maintenance-status"
                 ).permitAll()
                 .requestMatchers("/api/auth/crear-empleado").hasRole("ADMIN")
                 .requestMatchers("/api/admin/**").hasRole("ADMIN")
                 .requestMatchers("/api/**").authenticated()
                 .anyRequest().permitAll()
             )
+            .addFilterBefore(maintenanceFilter, UsernamePasswordAuthenticationFilter.class)
             .addFilterBefore(jwtAuthenticationFilter, UsernamePasswordAuthenticationFilter.class);
         
         return http.build();

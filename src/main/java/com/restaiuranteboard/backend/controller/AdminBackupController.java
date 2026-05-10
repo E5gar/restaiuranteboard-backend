@@ -3,11 +3,13 @@ package com.restaiuranteboard.backend.controller;
 import com.restaiuranteboard.backend.dto.BackupItemDto;
 import com.restaiuranteboard.backend.service.BackupAutomatizacionService;
 import com.restaiuranteboard.backend.service.BackupService;
+import com.restaiuranteboard.backend.service.MaintenanceModeService;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 
 @RestController
 @RequestMapping("/api/admin/backups")
@@ -15,10 +17,16 @@ public class AdminBackupController {
 
     private final BackupService backupService;
     private final BackupAutomatizacionService backupAutomatizacionService;
+    private final MaintenanceModeService maintenanceModeService;
 
-    public AdminBackupController(BackupService backupService, BackupAutomatizacionService backupAutomatizacionService) {
+    public AdminBackupController(
+            BackupService backupService,
+            BackupAutomatizacionService backupAutomatizacionService,
+            MaintenanceModeService maintenanceModeService
+    ) {
         this.backupService = backupService;
         this.backupAutomatizacionService = backupAutomatizacionService;
+        this.maintenanceModeService = maintenanceModeService;
     }
 
     @GetMapping("/list")
@@ -35,6 +43,21 @@ public class AdminBackupController {
     @PostMapping("/restore")
     public ResponseEntity<Map<String, Object>> restore(@RequestParam String db, @RequestParam String key) {
         backupService.restore(db, key);
+        return ResponseEntity.ok(Map.of("ok", true));
+    }
+
+    @PostMapping("/restore-pair")
+    public ResponseEntity<Map<String, Object>> restorePair(@RequestBody Map<String, Object> body) {
+        String pgKey = body != null && body.get("postgresKey") != null ? String.valueOf(body.get("postgresKey")) : null;
+        String mgKey = body != null && body.get("mongoKey") != null ? String.valueOf(body.get("mongoKey")) : null;
+        boolean notify = body != null && Boolean.TRUE.equals(body.get("notifyWhenDone"));
+        String notifyEmail = body != null && body.get("notifyEmail") != null ? String.valueOf(body.get("notifyEmail")) : null;
+        if (pgKey == null || pgKey.isBlank() || mgKey == null || mgKey.isBlank()) {
+            return ResponseEntity.badRequest().body(Map.of("ok", false, "message", "Keys requeridas."));
+        }
+        maintenanceModeService.startRestore(notify, notifyEmail, Set.of("postgresql", "mongodb"));
+        backupService.restore("postgresql", pgKey);
+        backupService.restore("mongodb", mgKey);
         return ResponseEntity.ok(Map.of("ok", true));
     }
 

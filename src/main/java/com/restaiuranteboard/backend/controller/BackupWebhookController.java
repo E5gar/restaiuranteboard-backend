@@ -28,8 +28,11 @@ public class BackupWebhookController {
             return ResponseEntity.status(401).body(Map.of("ok", false));
         }
         String status = body != null && body.get("status") != null ? String.valueOf(body.get("status")) : "unknown";
+        String op = body != null && body.get("operation") != null ? String.valueOf(body.get("operation")) : null;
+        String db = body != null && body.get("db_type") != null ? String.valueOf(body.get("db_type")) : null;
         String detail = body != null && body.get("detail") != null ? String.valueOf(body.get("detail")) : null;
-        backupAutomatizacionService.recordWorkflowResult(status, detail);
+        String extra = (op != null ? "op=" + op + " " : "") + (db != null ? "db=" + db + " " : "");
+        backupAutomatizacionService.recordWorkflowResult(status, (extra + (detail != null ? detail : "")).trim());
         return ResponseEntity.ok(Map.of("ok", true));
     }
 
