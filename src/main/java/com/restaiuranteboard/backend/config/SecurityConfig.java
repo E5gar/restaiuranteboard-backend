@@ -69,6 +69,7 @@ public class SecurityConfig {
                         "/api/auth/ip-status",
                         "/api/configuracion/**",
                         "/api/estado_bases_datos",
+                        "/api/client-errors/report",
                         "/api/webhooks/backup-workflow",
                         "/api/webhooks/backup-cron",
                         "/api/webhooks/email-dispatch"
