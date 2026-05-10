@@ -312,7 +312,7 @@ public class BackupAutomatizacionService {
             body.append("Detalle: ").append(detail).append("\n");
         }
         try {
-            emailService.enviarCorreoTextoPlano(em, asunto, body.toString(), em, pw);
+            emailService.enviarCorreoTextoPlano(em, asunto, body.toString(), em, pw, null);
         } catch (Exception ignored) {
         }
     }

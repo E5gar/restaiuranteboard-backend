@@ -19,6 +19,7 @@ public class ConfiguracionSistema {
     private String terminosCondiciones;
     private MediosPago mediosPago = new MediosPago();
     private boolean configuracionCompleta = false;
+    private boolean smtpCredentialsInvalid = false;
 
     @Data
     public static class MediosPago {

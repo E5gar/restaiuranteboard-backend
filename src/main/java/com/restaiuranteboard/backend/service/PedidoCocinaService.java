@@ -250,7 +250,14 @@ public class PedidoCocinaService {
             String cuerpo = "Se notificó que la orden #" + orderId + " está lista para entregar.";
             for (User r : repartidores) {
                 if (r.getEmail() != null && !r.getEmail().isBlank()) {
-                    emailService.enviarCorreoTextoPlano(r.getEmail(), asunto, cuerpo, em, pw);
+                    emailService.enviarCorreoTextoPlano(
+                            r.getEmail(),
+                            asunto,
+                            cuerpo,
+                            em,
+                            pw,
+                            r.getId() != null ? r.getId().toString() : null
+                    );
                 }
             }
         });

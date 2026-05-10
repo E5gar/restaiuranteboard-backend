@@ -35,4 +35,7 @@ public class User {
     
     private boolean isDeleted = false;
     private LocalDateTime createdAt = LocalDateTime.now();
+
+    @Column(name = "email_bounced")
+    private boolean emailBounced = false;
 }

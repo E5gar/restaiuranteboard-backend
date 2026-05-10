@@ -410,7 +410,8 @@ public class AuthController {
                     config.getEmailSmtp(),
                     config.getPasswordSmtp(),
                     tipo,
-                    config.getNombreNegocio()
+                    config.getNombreNegocio(),
+                    null
             );
             return ResponseEntity.ok(Map.of("message", "Código enviado al correo."));
         } catch (Exception e) {

@@ -70,7 +70,8 @@ public class SecurityConfig {
                         "/api/configuracion/**",
                         "/api/estado_bases_datos",
                         "/api/webhooks/backup-workflow",
-                        "/api/webhooks/backup-cron"
+                        "/api/webhooks/backup-cron",
+                        "/api/webhooks/email-dispatch"
                 ).permitAll()
                 .requestMatchers("/api/auth/crear-empleado").hasRole("ADMIN")
                 .requestMatchers("/api/admin/**").hasRole("ADMIN")

@@ -224,7 +224,14 @@ public class PedidoCajaService {
                     + "Pedido: #" + orderId + "\n"
                     + "Monto: S/ " + totalStr + "\n\n"
                     + "Gracias por tu compra en " + negocio + ".";
-            emailService.enviarCorreoTextoPlano(client.getEmail(), asunto, cuerpo, em, pw);
+            emailService.enviarCorreoTextoPlano(
+                    client.getEmail(),
+                    asunto,
+                    cuerpo,
+                    em,
+                    pw,
+                    client.getId() != null ? client.getId().toString() : null
+            );
         });
     }
 
@@ -244,7 +251,14 @@ public class PedidoCajaService {
                     + "No pudimos aceptar el comprobante de tu pedido #" + orderId + ".\n\n"
                     + "Motivo indicado por caja:\n" + motivo + "\n\n"
                     + "Si crees que es un error, contacta a " + negocio + ".";
-            emailService.enviarCorreoTextoPlano(client.getEmail(), asunto, cuerpo, em, pw);
+            emailService.enviarCorreoTextoPlano(
+                    client.getEmail(),
+                    asunto,
+                    cuerpo,
+                    em,
+                    pw,
+                    client.getId() != null ? client.getId().toString() : null
+            );
         });
     }
 

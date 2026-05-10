@@ -43,6 +43,7 @@ public class ConfiguracionController {
             vacia.put("configuracionCompleta", false);
             vacia.put("emailSmtp", "");
             vacia.put("smtpPasswordConfigured", false);
+            vacia.put("smtpCredentialsInvalid", false);
             vacia.put("nombreNegocio", "");
             vacia.put("telefonoNegocio", "");
             vacia.put("terminosCondiciones", "");
@@ -63,6 +64,7 @@ public class ConfiguracionController {
         m.put("configuracionCompleta", c.isConfiguracionCompleta());
         m.put("emailSmtp", c.getEmailSmtp() != null ? c.getEmailSmtp() : "");
         m.put("smtpPasswordConfigured", c.getPasswordSmtp() != null && !c.getPasswordSmtp().isBlank());
+        m.put("smtpCredentialsInvalid", c.isSmtpCredentialsInvalid());
         m.put("nombreNegocio", c.getNombreNegocio() != null ? c.getNombreNegocio() : "");
         m.put("telefonoNegocio", c.getTelefonoNegocio() != null ? c.getTelefonoNegocio() : "");
         m.put("terminosCondiciones", c.getTerminosCondiciones() != null ? c.getTerminosCondiciones() : "");
@@ -103,7 +105,8 @@ public class ConfiguracionController {
                     email,
                     pass,
                     EmailService.TipoCodigoCorreo.SETUP_SMTP,
-                    "Restaiuranteboard"
+                    "Restaiuranteboard",
+                    null
             );
             return ResponseEntity.ok(Map.of("message", "Código enviado correctamente a " + email));
         } catch (Exception e) {
@@ -180,6 +183,7 @@ public class ConfiguracionController {
         }
 
         config.setConfiguracionCompleta(true);
+        config.setSmtpCredentialsInvalid(false);
         configNoSqlRepo.save(config);
 
         return ResponseEntity.ok(Map.of("message", "¡Configuración guardada con éxito!"));

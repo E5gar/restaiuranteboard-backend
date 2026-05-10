@@ -132,7 +132,8 @@ public class PerfilController {
                     config.getEmailSmtp(),
                     config.getPasswordSmtp(),
                     EmailService.TipoCodigoCorreo.RECUPERACION_PASSWORD,
-                    config.getNombreNegocio()
+                    config.getNombreNegocio(),
+                    user.getId() != null ? user.getId().toString() : null
             );
         } catch (Exception e) {
             return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).body(Map.of("message", "Error al enviar el correo."));

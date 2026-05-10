@@ -1,9 +1,10 @@
 package com.restaiuranteboard.backend.service;
 
-import org.springframework.mail.SimpleMailMessage;
-import org.springframework.mail.javamail.JavaMailSenderImpl;
+import com.restaiuranteboard.backend.model.nosql.ConfiguracionSistema;
+import com.restaiuranteboard.backend.model.sql.User;
+import com.restaiuranteboard.backend.repository.nosql.ConfiguracionSistemaRepository;
+import com.restaiuranteboard.backend.repository.sql.UserRepository;
 import org.springframework.stereotype.Service;
-import java.util.Properties;
 
 @Service
 public class EmailService {
@@ -15,24 +16,17 @@ public class EmailService {
         RECUPERACION_PASSWORD
     }
 
-    private JavaMailSenderImpl crearMailSender(String emisor, String passwordSmtp) {
-        JavaMailSenderImpl mailSender = new JavaMailSenderImpl();
-        mailSender.setHost("smtp.gmail.com");
-        mailSender.setPort(587);
-        mailSender.setUsername(emisor);
-        mailSender.setPassword(passwordSmtp);
+    private final GithubEmailDispatchService githubEmailDispatchService;
+    private final ConfiguracionSistemaRepository configRepository;
+    private final UserRepository userRepository;
 
-        Properties props = mailSender.getJavaMailProperties();
-        props.put("mail.transport.protocol", "smtp");
-        props.put("mail.smtp.auth", "true");
-        props.put("mail.smtp.starttls.enable", "true");
-        props.put("mail.smtp.starttls.required", "true");
-        props.put("mail.smtp.ssl.trust", "smtp.gmail.com");
-        props.put("mail.smtp.connectiontimeout", "60000");
-        props.put("mail.smtp.timeout", "60000");
-        props.put("mail.smtp.writetimeout", "60000");
-
-        return mailSender;
+    public EmailService(
+            GithubEmailDispatchService githubEmailDispatchService,
+            ConfiguracionSistemaRepository configRepository,
+            UserRepository userRepository) {
+        this.githubEmailDispatchService = githubEmailDispatchService;
+        this.configRepository = configRepository;
+        this.userRepository = userRepository;
     }
 
     public void enviarCodigoVerificacion(
@@ -41,9 +35,13 @@ public class EmailService {
             String emisor,
             String passwordSmtp,
             TipoCodigoCorreo tipo,
-            String nombreNegocio
+            String nombreNegocio,
+            String notifyUserId
     ) {
-        JavaMailSenderImpl mailSender = crearMailSender(emisor, passwordSmtp);
+        if (destino != null && usuarioRebotado(destino)) {
+            throw new IllegalStateException("No se puede enviar correo a esta direcci?n.");
+        }
+        assertSmtpConfigPermiteEnvio(tipo);
 
         String negocio = (nombreNegocio == null || nombreNegocio.isBlank())
                 ? "Restaiuranteboard" : nombreNegocio.trim();
@@ -52,45 +50,46 @@ public class EmailService {
 
         switch (tipo) {
             case SETUP_SMTP -> {
-                subject = "Código de verificación SMTP - " + negocio;
-                body = "Estás validando el correo SMTP de " + negocio + ".\n\n"
-                        + "Código: " + codigo + "\n"
-                        + "Este código expira en 1 minuto.";
+                subject = "C?digo de verificaci?n SMTP - " + negocio;
+                body = "Est?s validando el correo SMTP de " + negocio + ".\n\n"
+                        + "C?digo: " + codigo + "\n"
+                        + "Este c?digo expira en 1 minuto.";
             }
             case REGISTRO_USUARIO -> {
-                subject = "Código de registro de cuenta - " + negocio;
+                subject = "C?digo de registro de cuenta - " + negocio;
                 body = "Recibimos una solicitud de registro en " + negocio + ".\n\n"
-                        + "Código de verificación: " + codigo + "\n"
-                        + "Este código expira en 1 minuto.\n"
-                        + "Si no realizaste esta acción, ignora este mensaje.";
+                        + "C?digo de verificaci?n: " + codigo + "\n"
+                        + "Este c?digo expira en 1 minuto.\n"
+                        + "Si no realizaste esta acci?n, ignora este mensaje.";
             }
             case ACTIVACION_EMPLEADO -> {
-                subject = "Código para activar tu cuenta de personal - " + negocio;
-                body = "Tu cuenta de personal fue creada y requiere activación.\n\n"
-                        + "Código de activación: " + codigo + "\n"
-                        + "Este código expira en 1 minuto.";
+                subject = "C?digo para activar tu cuenta de personal - " + negocio;
+                body = "Tu cuenta de personal fue creada y requiere activaci?n.\n\n"
+                        + "C?digo de activaci?n: " + codigo + "\n"
+                        + "Este c?digo expira en 1 minuto.";
             }
             case RECUPERACION_PASSWORD -> {
-                subject = "Código para restablecer contraseña - " + negocio;
-                body = "Recibimos una solicitud para restablecer tu contraseña.\n\n"
-                        + "Código de recuperación: " + codigo + "\n"
-                        + "Este código expira en 1 minuto.\n"
+                subject = "C?digo para restablecer contrase?a - " + negocio;
+                body = "Recibimos una solicitud para restablecer tu contrase?a.\n\n"
+                        + "C?digo de recuperaci?n: " + codigo + "\n"
+                        + "Este c?digo expira en 1 minuto.\n"
                         + "Si no solicitaste este cambio, ignora este correo.";
             }
             default -> {
-                subject = "Código de verificación - " + negocio;
-                body = "Tu código de verificación es: " + codigo
-                        + "\nEste código expira en 1 minuto.";
+                subject = "C?digo de verificaci?n - " + negocio;
+                body = "Tu c?digo de verificaci?n es: " + codigo
+                        + "\nEste c?digo expira en 1 minuto.";
             }
         }
 
-        SimpleMailMessage message = new SimpleMailMessage();
-        message.setFrom(emisor);
-        message.setTo(destino);
-        message.setSubject(subject);
-        message.setText(body);
-
-        mailSender.send(message);
+        githubEmailDispatchService.dispatchPlainEmail(
+                destino,
+                emisor,
+                passwordSmtp,
+                subject,
+                body,
+                notifyUserId
+        );
     }
 
     public void enviarCorreoTextoPlano(
@@ -98,21 +97,44 @@ public class EmailService {
             String asunto,
             String cuerpo,
             String emisor,
-            String passwordSmtp
+            String passwordSmtp,
+            String notifyUserId
     ) {
         if (destino == null || destino.isBlank() || emisor == null || emisor.isBlank()
                 || passwordSmtp == null || passwordSmtp.isBlank()) {
             return;
         }
+        if (usuarioRebotado(destino)) {
+            return;
+        }
+        ConfiguracionSistema cfg = configRepository.findById("GLOBAL_CONFIG").orElse(null);
+        if (cfg != null && cfg.isSmtpCredentialsInvalid()) {
+            return;
+        }
 
-        JavaMailSenderImpl mailSender = crearMailSender(emisor, passwordSmtp);
+        githubEmailDispatchService.dispatchPlainEmail(
+                destino,
+                emisor,
+                passwordSmtp,
+                asunto,
+                cuerpo,
+                notifyUserId
+        );
+    }
 
-        SimpleMailMessage message = new SimpleMailMessage();
-        message.setFrom(emisor);
-        message.setTo(destino);
-        message.setSubject(asunto);
-        message.setText(cuerpo);
+    private void assertSmtpConfigPermiteEnvio(TipoCodigoCorreo tipo) {
+        if (tipo == TipoCodigoCorreo.SETUP_SMTP) {
+            return;
+        }
+        ConfiguracionSistema c = configRepository.findById("GLOBAL_CONFIG").orElse(null);
+        if (c != null && c.isSmtpCredentialsInvalid()) {
+            throw new IllegalStateException("Correo del sistema no disponible. Revisa la configuraci?n SMTP.");
+        }
+    }
 
-        mailSender.send(message);
+    private boolean usuarioRebotado(String email) {
+        return userRepository.findByEmailIgnoreCase(email.trim())
+                .map(User::isEmailBounced)
+                .orElse(false);
     }
 }
