@@ -2,6 +2,7 @@ package com.restaiuranteboard.backend.controller;
 
 import com.restaiuranteboard.backend.service.AiDatasetWebhookService;
 import com.restaiuranteboard.backend.service.BackupAutomatizacionService;
+import com.restaiuranteboard.backend.service.DashboardReportWebhookService;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
@@ -17,13 +18,16 @@ public class BackupWebhookController {
 
     private final BackupAutomatizacionService backupAutomatizacionService;
     private final AiDatasetWebhookService aiDatasetWebhookService;
+    private final DashboardReportWebhookService dashboardReportWebhookService;
 
     public BackupWebhookController(
             BackupAutomatizacionService backupAutomatizacionService,
-            AiDatasetWebhookService aiDatasetWebhookService
+            AiDatasetWebhookService aiDatasetWebhookService,
+            DashboardReportWebhookService dashboardReportWebhookService
     ) {
         this.backupAutomatizacionService = backupAutomatizacionService;
         this.aiDatasetWebhookService = aiDatasetWebhookService;
+        this.dashboardReportWebhookService = dashboardReportWebhookService;
     }
 
     @PostMapping("/backup-workflow")
@@ -50,6 +54,17 @@ public class BackupWebhookController {
             return ResponseEntity.status(401).body(Map.of("ok", false));
         }
         aiDatasetWebhookService.handleWorkflowResult(body);
+        return ResponseEntity.ok(Map.of("ok", true));
+    }
+
+    @PostMapping("/dashboard-report-workflow")
+    public ResponseEntity<Map<String, Object>> dashboardReportWorkflow(
+            @RequestHeader(value = "X-Backup-Signature", required = false) String signature,
+            @RequestBody(required = false) Map<String, Object> body) {
+        if (!dashboardReportWebhookService.verifySignature(signature)) {
+            return ResponseEntity.status(401).body(Map.of("ok", false));
+        }
+        dashboardReportWebhookService.handleWorkflowResult(body);
         return ResponseEntity.ok(Map.of("ok", true));
     }
 

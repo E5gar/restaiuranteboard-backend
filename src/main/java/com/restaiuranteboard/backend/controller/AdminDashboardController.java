@@ -1,12 +1,17 @@
 package com.restaiuranteboard.backend.controller;
 
+import com.restaiuranteboard.backend.dto.DashboardExportRequest;
+import com.restaiuranteboard.backend.service.DashboardReportDispatchService;
+import com.restaiuranteboard.backend.service.DashboardExportJobService;
 import com.restaiuranteboard.backend.service.dashboard.AdminDashboardService;
 import com.restaiuranteboard.backend.service.dashboard.InventoryPredictionService;
 import org.springframework.format.annotation.DateTimeFormat;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
@@ -25,13 +30,19 @@ public class AdminDashboardController {
 
     private final AdminDashboardService adminDashboardService;
     private final InventoryPredictionService inventoryPredictionService;
+    private final DashboardReportDispatchService dashboardReportDispatchService;
+    private final DashboardExportJobService dashboardExportJobService;
 
     public AdminDashboardController(
             AdminDashboardService adminDashboardService,
-            InventoryPredictionService inventoryPredictionService
+            InventoryPredictionService inventoryPredictionService,
+            DashboardReportDispatchService dashboardReportDispatchService,
+            DashboardExportJobService dashboardExportJobService
     ) {
         this.adminDashboardService = adminDashboardService;
         this.inventoryPredictionService = inventoryPredictionService;
+        this.dashboardReportDispatchService = dashboardReportDispatchService;
+        this.dashboardExportJobService = dashboardExportJobService;
     }
 
     private static LocalDateTime fromDef(LocalDateTime from) {
@@ -153,6 +164,26 @@ public class AdminDashboardController {
         log.info("[DASHBOARD-REQ] GET interacciones from={} to={} action={} clima={} segmento={} userId={}",
                 f0, t0, action, condicionClima, segmento, userId);
         return ResponseEntity.ok(adminDashboardService.interacciones(f0, t0, action, condicionClima, segmento, userId));
+    }
+
+    @PostMapping("/export/solicitar")
+    public ResponseEntity<?> solicitarExportacion(@RequestBody DashboardExportRequest request) {
+        try {
+            return ResponseEntity.ok(dashboardReportDispatchService.solicitarGeneracion(request));
+        } catch (IllegalArgumentException e) {
+            log.warn("[DASHBOARD-REQ] POST export/solicitar rechazado: {}", e.getMessage());
+            return ResponseEntity.status(HttpStatus.BAD_REQUEST)
+                    .body(Map.of("message", e.getMessage()));
+        }
+    }
+
+    @GetMapping("/export/jobs/{jobId}")
+    public ResponseEntity<?> estadoExportacion(@PathVariable String jobId) {
+        try {
+            return ResponseEntity.ok(dashboardExportJobService.estadoPublico(jobId));
+        } catch (IllegalArgumentException e) {
+            return ResponseEntity.status(HttpStatus.NOT_FOUND).body(Map.of("message", e.getMessage()));
+        }
     }
 
     @PostMapping("/inventario-prediccion")

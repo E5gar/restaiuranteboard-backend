@@ -74,6 +74,8 @@ public class SecurityConfig {
                         "/api/client-errors/report",
                         "/api/webhooks/backup-workflow",
                         "/api/webhooks/dataset-workflow",
+                        "/api/webhooks/dashboard-report-workflow",
+                        "/api/webhooks/dashboard-export/**",
                         "/api/webhooks/backup-cron",
                         "/api/webhooks/email-dispatch",
                         "/api/webhooks/maintenance-end",
