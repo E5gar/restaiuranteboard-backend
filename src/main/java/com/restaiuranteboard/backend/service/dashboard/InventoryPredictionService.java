@@ -117,6 +117,12 @@ public class InventoryPredictionService {
         }
 
         MetaSlot3 meta = parseMeta(metaModeloB64);
+        log.info(
+                "[DASHBOARD] inventario-prediccion pipeline meta seqLen={} horizontes={} cols={} modelChars={} metaChars={}",
+                meta.seqLen, meta.horizonKeys.size(), meta.featureCols.size(),
+                modelFileB64 != null ? modelFileB64.length() : 0,
+                metaModeloB64 != null ? metaModeloB64.length() : 0
+        );
         LocalDate today = LocalDate.now(Z);
         LocalDate startHistory = today.minusDays(200);
         LocalDateTime fromDt = startHistory.atStartOfDay(Z).toLocalDateTime();
@@ -136,6 +142,11 @@ public class InventoryPredictionService {
             double rest = toDouble(row[3]);
             byInv.computeIfAbsent(invId, k -> new TreeMap<>()).put(d, new double[]{cons, rest});
         }
+
+        log.info(
+                "[DASHBOARD] inventario-prediccion datos diasConPedidos={} filasAggMovimiento={} insumosDistintosEnSerie={}",
+                ordersByDay.size(), agg.size(), byInv.size()
+        );
 
         List<Inventory> inventarios = inventoryRepository.findAllByIsDeletedFalse();
         ContextoInteligenciaService.ContextoInteligencia ctxNow = contextoInteligenciaService.contextoActual();
@@ -169,6 +180,11 @@ public class InventoryPredictionService {
             batchRaw.add(seq);
         }
 
+        log.info(
+                "[DASHBOARD] inventario-prediccion ventana inventariosActivos={} lotesListosInferencia={}",
+                inventarios.size(), ingredientIds.size()
+        );
+
         if (ingredientIds.isEmpty()) {
             Map<String, Object> empty = new LinkedHashMap<>();
             empty.put("mensaje", "No hay insumos con historial suficiente para formar la ventana de predicción.");
@@ -177,6 +193,10 @@ public class InventoryPredictionService {
             empty.put("heatmap", Map.of("filas", List.of(), "columnas", meta.horizonKeys, "valores", List.of()));
             empty.put("horizonKeys", meta.horizonKeys);
             empty.put("horizonLabels", horizonLabelsEs());
+            log.warn(
+                    "[DASHBOARD] inventario-prediccion respuesta vacia items=0 inventariosActivos={}",
+                    inventarios.size()
+            );
             return empty;
         }
 
@@ -186,11 +206,13 @@ public class InventoryPredictionService {
         }
 
         String modelId = "slot3|" + slot3.getUploadedAt() + "|" + slot3.getModelFileName();
+        log.info("[DASHBOARD] inventario-prediccion llamando HF inputsLotes={} modelId={}", inputs.size(), modelId);
         List<List<Double>> predictions = callHfPredictInventory(modelFileB64, modelId, inputs);
 
         if (predictions.size() != ingredientIds.size()) {
             throw new IllegalStateException("La respuesta del servicio de inferencia no coincide con el lote enviado.");
         }
+        log.info("[DASHBOARD] inventario-prediccion HF ok predicciones={}", predictions.size());
 
         List<Map<String, Object>> items = new ArrayList<>();
         List<List<Double>> heatmapVals = new ArrayList<>();
@@ -286,6 +308,10 @@ public class InventoryPredictionService {
                 "valores", heatmapVals,
                 "keys", meta.horizonKeys
         ));
+        log.info(
+                "[DASHBOARD] inventario-prediccion respuesta items={} alertasCriticas={} heatmapFilas={} heatmapCols={}",
+                items.size(), alertasOut.size(), names.size(), meta.horizonKeys.size()
+        );
         return out;
     }
 

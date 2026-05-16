@@ -8,6 +8,8 @@ import com.restaiuranteboard.backend.repository.nosql.AiModelConfigRepository;
 import com.restaiuranteboard.backend.repository.nosql.ProductoRepository;
 import com.restaiuranteboard.backend.repository.nosql.UserInteractionAnalyticsSupport;
 import com.restaiuranteboard.backend.repository.sql.*;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.data.jpa.domain.Specification;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -22,6 +24,8 @@ import java.util.stream.Collectors;
 
 @Service
 public class AdminDashboardService {
+
+    private static final Logger log = LoggerFactory.getLogger(AdminDashboardService.class);
 
     private static final List<String> ESTADOS_EN_CURSO = List.of(
             "PENDIENTE_PAGO",
@@ -212,6 +216,13 @@ public class AdminDashboardService {
         kpis.put("ingresoHoy", ingresoHoy.setScale(2, RoundingMode.HALF_UP).doubleValue());
         kpis.put("pedidosEnCurso", pedidosEnCursoGlobal);
 
+        log.info(
+                "[DASHBOARD] ventas-pedidos from={} toEx={} pedidosFiltrados={} entregados={} cancelados={} "
+                        + "ingresoPorHoraPts={} ventasPorDiaPts={} heatmapPts={} climaScatterPts={} ticketSemanalPts={}",
+                from, toExclusive, nTotal, nEntregados, nCancelados,
+                ingresoPorHora.size(), ventasPorDia.size(), heatList.size(), climaVsMonto.size(), ticketSemanal.size()
+        );
+
         return Map.of(
                 "kpis", kpis,
                 "pedidosPorEstado", porEstado,
@@ -343,6 +354,13 @@ public class AdminDashboardService {
         kpis.put("insumosSinMovimiento", sinMovimiento);
         kpis.put("rotacionInventario", rotacion);
 
+        log.info(
+                "[DASHBOARD] inventario-costos from={} toEx={} insumosProyeccion={} stockFilas={} topConsumo={} "
+                        + "semanasAbast={} categoriasConsumo={} margenProductosTop={}",
+                from, toExclusive, inv.size(), stockPorInsumo.size(), topConsumo.size(),
+                abastPorSemana.size(), consumoCat.size(), Math.min(20, margenProductos.size())
+        );
+
         return Map.of(
                 "kpis", kpis,
                 "stockPorInsumo", stockPorInsumo,
@@ -458,6 +476,13 @@ public class AdminDashboardService {
         kpis.put("categoriaLiderVentas", catLider);
         kpis.put("tasaPedidosCalificadosPct", tasaCalificados);
 
+        log.info(
+                "[DASHBOARD] productos from={} toEx={} productosConVentasEnAgg={} rankingTrasFiltros={} topEnRespuesta={} "
+                        + "categoriasIngreso={} distEstrellasClaves={}",
+                from, toExclusive, qtyPorProducto.size(), ranking.size(),
+                Math.min(15, ranking.size()), ingresoPorCat.size(), distEstrellas.size()
+        );
+
         return Map.of(
                 "kpis", kpis,
                 "topProductos", ranking.stream().limit(15).toList(),
@@ -542,6 +567,8 @@ public class AdminDashboardService {
             }
         }
 
+        Map<String, Long> frecuenciaPedidosHistograma = histogramaPedidos(pedidosPorCliente);
+
         Map<String, Object> kpis = new LinkedHashMap<>();
         kpis.put("totalClientes", totalClientes);
         kpis.put("clientesNuevosPeriodo", nuevos);
@@ -550,10 +577,17 @@ public class AdminDashboardService {
         kpis.put("calificacionPromedioGeneral", avgStars != null ? round2(avgStars) : 0);
         kpis.put("pedidosPromedioPorCliente", pedidosPromedio);
 
+        log.info(
+                "[DASHBOARD] clientes from={} toEx={} clientesActivos={} clientesConPedidosPeriodo={} topGastoFilas={} "
+                        + "histogramaBuckets={}",
+                from, toExclusive, totalClientes, pedidosPorCliente.size(), topGasto.size(),
+                frecuenciaPedidosHistograma.size()
+        );
+
         return Map.of(
                 "kpis", kpis,
                 "topClientesGasto", topGasto,
-                "frecuenciaPedidosHistograma", histogramaPedidos(pedidosPorCliente),
+                "frecuenciaPedidosHistograma", frecuenciaPedidosHistograma,
                 "distribucionEstrellas", distEstrellasCli
         );
     }
@@ -663,6 +697,13 @@ public class AdminDashboardService {
         kpis.put("pedidosSuperaronValidacionHoy", pedidosSuperaronValidacionHoy);
         kpis.put("pedidosEnCocinaAhora", enCocina);
 
+        log.info(
+                "[DASHBOARD] operacion from={} toEx={} pedidosVentana={} muestrasTiempoEntrega={} "
+                        + "histogramaEntregaBuckets={} embudoHoras={} repartidoresConEntrega={} filasCajeroVsRechazo={}",
+                from, toExclusive, list.size(), minutosEntrega.size(), buckets.size(), embudoPorHora.size(),
+                entregasPorRepartidor.size(), cajeroFilas.size()
+        );
+
         return Map.of(
                 "kpis", kpis,
                 "histogramaTiemposEntrega", buckets,
@@ -728,6 +769,11 @@ public class AdminDashboardService {
         kpis.put("usuariosUnicosActivos", usuariosUnicos);
         kpis.put("eventosBloqueo", blocked);
 
+        log.info(
+                "[DASHBOARD] seguridad from={} toEx={} auditorias={} intentosPorHoraPts={} ipsMasFallos={}",
+                from, toExclusive, total, porHora.size(), ipFallos.size()
+        );
+
         return Map.of(
                 "kpis", kpis,
                 "intentosPorHora", porHora.entrySet().stream()
@@ -784,6 +830,13 @@ public class AdminDashboardService {
         kpis.put("tasaRechazoRecomendacionPct", tasaReject);
         kpis.put("dwellTimePromedioSeg", round2(dwellAvg));
         kpis.put("estadoSlot1Ia", slot1);
+
+        log.info(
+                "[DASHBOARD] interacciones from={} toEx={} total={} accionesDistintas={} topProductos={} "
+                        + "climaPorAccionFilas={} segmentoDiaFilas={}",
+                from, toExclusive, total, porAccion.size(), topProductosInteraccion.size(),
+                agg.climaPorAccion().size(), agg.porSegmento().size()
+        );
 
         return Map.of(
                 "kpis", kpis,

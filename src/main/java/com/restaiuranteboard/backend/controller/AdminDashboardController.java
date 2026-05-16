@@ -10,6 +10,8 @@ import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import java.time.LocalDateTime;
 import java.util.Map;
@@ -18,6 +20,8 @@ import java.util.UUID;
 @RestController
 @RequestMapping("/api/admin/dashboard")
 public class AdminDashboardController {
+
+    private static final Logger log = LoggerFactory.getLogger(AdminDashboardController.class);
 
     private final AdminDashboardService adminDashboardService;
     private final InventoryPredictionService inventoryPredictionService;
@@ -49,6 +53,8 @@ public class AdminDashboardController {
     ) {
         LocalDateTime f0 = fromDef(from);
         LocalDateTime t0 = toDefExclusive(to);
+        log.info("[DASHBOARD-REQ] GET ventas-pedidos from={} to={} status={} momento={} diaSemana={} clima={}",
+                f0, t0, status, momentOfDay, dayOfWeek, weatherCondition);
         return ResponseEntity.ok(adminDashboardService.ventasPedidos(f0, t0, status, momentOfDay, dayOfWeek, weatherCondition));
     }
 
@@ -63,6 +69,8 @@ public class AdminDashboardController {
     ) {
         LocalDateTime f0 = fromDef(from);
         LocalDateTime t0 = toDefExclusive(to);
+        log.info("[DASHBOARD-REQ] GET inventario-costos from={} to={} categoriaInsumo={} tipoMov={} soloStockBajo={} umbral={}",
+                f0, t0, categoriaInsumo, tipoMovimiento, soloStockBajo, umbralStockBajo);
         return ResponseEntity.ok(adminDashboardService.inventarioCostos(f0, t0, categoriaInsumo, tipoMovimiento, soloStockBajo, umbralStockBajo));
     }
 
@@ -77,6 +85,8 @@ public class AdminDashboardController {
     ) {
         LocalDateTime f0 = fromDef(from);
         LocalDateTime t0 = toDefExclusive(to);
+        log.info("[DASHBOARD-REQ] GET productos from={} to={} categoria={} estrellasMin={} precioMin={} precioMax={}",
+                f0, t0, categoriaProducto, estrellasMin, precioMin, precioMax);
         return ResponseEntity.ok(adminDashboardService.productos(f0, t0, categoriaProducto, estrellasMin, precioMin, precioMax));
     }
 
@@ -92,6 +102,8 @@ public class AdminDashboardController {
         LocalDateTime f0 = fromDef(from);
         LocalDateTime t0 = toDefExclusive(to);
         LocalDateTime regToEx = regTo != null ? regTo : t0;
+        log.info("[DASHBOARD-REQ] GET clientes from={} to={} regFrom={} regTo={} estrellasFiltro={} soloRecurrentes={}",
+                f0, t0, regFrom, regToEx, estrellasFiltro, soloRecurrentes);
         return ResponseEntity.ok(adminDashboardService.clientes(f0, t0, regFrom, regToEx, estrellasFiltro, soloRecurrentes));
     }
 
@@ -104,6 +116,7 @@ public class AdminDashboardController {
     ) {
         LocalDateTime f0 = fromDef(from);
         LocalDateTime t0 = toDefExclusive(to);
+        log.info("[DASHBOARD-REQ] GET operacion from={} to={} cajeroId={} repartidorId={}", f0, t0, cajeroId, repartidorId);
         return ResponseEntity.ok(adminDashboardService.operacion(f0, t0, cajeroId, repartidorId));
     }
 
@@ -116,6 +129,7 @@ public class AdminDashboardController {
     ) {
         LocalDateTime f0 = fromDef(from);
         LocalDateTime t0 = toDefExclusive(to);
+        log.info("[DASHBOARD-REQ] GET seguridad from={} to={} status={} rol={}", f0, t0, status, rol);
         return ResponseEntity.ok(adminDashboardService.seguridad(f0, t0, status, rol));
     }
 
@@ -130,14 +144,18 @@ public class AdminDashboardController {
     ) {
         LocalDateTime f0 = fromDef(from);
         LocalDateTime t0 = toDefExclusive(to);
+        log.info("[DASHBOARD-REQ] GET interacciones from={} to={} action={} clima={} segmento={} userId={}",
+                f0, t0, action, condicionClima, segmento, userId);
         return ResponseEntity.ok(adminDashboardService.interacciones(f0, t0, action, condicionClima, segmento, userId));
     }
 
     @PostMapping("/inventario-prediccion")
     public ResponseEntity<?> inventarioPrediccion() {
+        log.info("[DASHBOARD-REQ] POST inventario-prediccion");
         try {
             return ResponseEntity.ok(inventoryPredictionService.ejecutarPrediccionInventario());
         } catch (IllegalStateException | IllegalArgumentException e) {
+            log.warn("[DASHBOARD-REQ] POST inventario-prediccion rechazado: {}", e.getMessage());
             return ResponseEntity.status(HttpStatus.BAD_REQUEST).body(Map.of("message", e.getMessage()));
         }
     }
