@@ -6,6 +6,7 @@ import com.restaiuranteboard.backend.model.sql.User;
 import com.restaiuranteboard.backend.repository.sql.OrderRatingRepository;
 import com.restaiuranteboard.backend.repository.sql.RestaurantOrderRepository;
 import com.restaiuranteboard.backend.repository.sql.UserRepository;
+import com.restaiuranteboard.backend.util.UsuarioCompradorValidator;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -57,7 +58,7 @@ public class CalificacionPedidoService {
         if (userId == null) throw new IllegalArgumentException("Usuario requerido.");
         User u = userRepository.findById(userId).orElseThrow(() -> new IllegalArgumentException("Usuario no encontrado."));
         if (u.isDeleted() || u.getRole() == null) throw new IllegalArgumentException("No autorizado.");
-        if (!Set.of("CLIENTE", "ADMIN").contains(u.getRole().getName())) throw new IllegalArgumentException("No autorizado.");
+        UsuarioCompradorValidator.validarUsuarioComprador(u);
         return u;
     }
 }

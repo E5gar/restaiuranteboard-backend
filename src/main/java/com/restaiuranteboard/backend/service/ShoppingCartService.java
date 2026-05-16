@@ -8,6 +8,7 @@ import com.restaiuranteboard.backend.model.sql.User;
 import com.restaiuranteboard.backend.repository.nosql.ProductoRepository;
 import com.restaiuranteboard.backend.repository.nosql.ShoppingCartRepository;
 import com.restaiuranteboard.backend.repository.sql.UserRepository;
+import com.restaiuranteboard.backend.util.UsuarioCompradorValidator;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 
@@ -184,20 +185,7 @@ public class ShoppingCartService {
     }
 
     private void validarUsuarioCliente(String userId) {
-        UUID uuid;
-        try {
-            uuid = UUID.fromString(userId);
-        } catch (IllegalArgumentException e) {
-            throw new IllegalArgumentException("userId inválido.");
-        }
-        User user = userRepository.findById(uuid).orElseThrow(
-                () -> new IllegalArgumentException("Usuario no encontrado."));
-        if (user.isDeleted()) {
-            throw new IllegalArgumentException("Usuario no encontrado.");
-        }
-        if (user.getRole() == null || !"CLIENTE".equals(user.getRole().getName())) {
-            throw new IllegalArgumentException("Solo clientes tienen carrito.");
-        }
+        UsuarioCompradorValidator.requerirUsuarioComprador(userRepository, userId);
     }
 
     public ShoppingCart getOrCreate(String userId) {

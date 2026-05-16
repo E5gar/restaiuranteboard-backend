@@ -11,6 +11,7 @@ import com.restaiuranteboard.backend.repository.nosql.ShoppingCartRepository;
 import com.restaiuranteboard.backend.repository.sql.OrderItemRepository;
 import com.restaiuranteboard.backend.repository.sql.RestaurantOrderRepository;
 import com.restaiuranteboard.backend.repository.sql.UserRepository;
+import com.restaiuranteboard.backend.util.UsuarioCompradorValidator;
 import org.springframework.messaging.simp.SimpMessagingTemplate;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
@@ -61,12 +62,7 @@ public class PedidoService {
 
         User client = userRepository.findById(clientId).orElseThrow(
                 () -> new IllegalArgumentException("Usuario no encontrado."));
-        if (client.isDeleted()) {
-            throw new IllegalArgumentException("Usuario no encontrado.");
-        }
-        if (client.getRole() == null || !"CLIENTE".equals(client.getRole().getName())) {
-            throw new IllegalArgumentException("Solo los clientes pueden crear pedidos.");
-        }
+        UsuarioCompradorValidator.validarUsuarioComprador(client);
 
         String userIdStr = clientId.toString();
         ShoppingCart cart = shoppingCartService.getOrCreate(userIdStr);

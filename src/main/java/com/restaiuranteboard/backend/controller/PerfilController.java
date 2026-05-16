@@ -175,7 +175,7 @@ public class PerfilController {
     }
 
     private boolean bloquearEdicionDireccionCliente(User user) {
-        if (user == null || user.getRole() == null || !"CLIENTE".equalsIgnoreCase(user.getRole().getName())) {
+        if (user == null || user.getId() == null) {
             return false;
         }
         return restaurantOrderRepository.existsByClient_IdAndStatusIn(user.getId(), ESTADOS_BLOQUEO_DIRECCION_CLIENTE);

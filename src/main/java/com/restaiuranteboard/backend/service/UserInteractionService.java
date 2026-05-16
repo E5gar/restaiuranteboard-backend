@@ -4,6 +4,7 @@ import com.restaiuranteboard.backend.model.nosql.UserInteraction;
 import com.restaiuranteboard.backend.model.sql.User;
 import com.restaiuranteboard.backend.repository.nosql.UserInteractionRepository;
 import com.restaiuranteboard.backend.repository.sql.UserRepository;
+import com.restaiuranteboard.backend.util.UsuarioCompradorValidator;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 
@@ -60,9 +61,7 @@ public class UserInteractionService {
         if (user.isDeleted() || user.getRole() == null) {
             throw new IllegalArgumentException("No autorizado.");
         }
-        if (!Set.of("CLIENTE", "ADMIN").contains(user.getRole().getName())) {
-            throw new IllegalArgumentException("No autorizado.");
-        }
+        UsuarioCompradorValidator.validarUsuarioComprador(user);
         return user;
     }
 }

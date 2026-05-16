@@ -175,10 +175,10 @@ public class AuthController {
             bodyFirst.put("role", user.getRole().getName());
             bodyFirst.put("darkMode", user.isDarkMode());
             bodyFirst.put("userId", user.getId().toString());
-            if ("CLIENTE".equals(user.getRole().getName())) {
-                bodyFirst.put("cart", Map.of("items", Collections.emptyList()));
-                bodyFirst.put("removedItems", Collections.emptyList());
-            }
+            ShoppingCartService.LoginCartPayload firstCart =
+                    shoppingCartService.loadSanitizeAndEnrich(user.getId().toString());
+            bodyFirst.put("cart", firstCart.cart());
+            bodyFirst.put("removedItems", firstCart.removedItems());
             return ResponseEntity.ok(bodyFirst);
         }
 
@@ -230,14 +230,9 @@ public class AuthController {
         body.put("firstLogin", false);
         body.put("darkMode", user.isDarkMode());
         body.put("userId", user.getId().toString());
-        if ("CLIENTE".equals(user.getRole().getName())) {
-            ShoppingCartService.LoginCartPayload payload = shoppingCartService.loadSanitizeAndEnrich(user.getId().toString());
-            body.put("cart", payload.cart());
-            body.put("removedItems", payload.removedItems());
-        } else {
-            body.put("cart", Map.of("items", Collections.emptyList()));
-            body.put("removedItems", Collections.emptyList());
-        }
+        ShoppingCartService.LoginCartPayload payload = shoppingCartService.loadSanitizeAndEnrich(user.getId().toString());
+        body.put("cart", payload.cart());
+        body.put("removedItems", payload.removedItems());
         return ResponseEntity.ok(body);
     }
 

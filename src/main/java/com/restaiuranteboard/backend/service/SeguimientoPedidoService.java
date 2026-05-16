@@ -11,6 +11,7 @@ import com.restaiuranteboard.backend.repository.nosql.ProductoRepository;
 import com.restaiuranteboard.backend.repository.sql.OrderItemRepository;
 import com.restaiuranteboard.backend.repository.sql.RestaurantOrderRepository;
 import com.restaiuranteboard.backend.repository.sql.UserRepository;
+import com.restaiuranteboard.backend.util.UsuarioCompradorValidator;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -105,7 +106,7 @@ public class SeguimientoPedidoService {
         if (userId == null) throw new IllegalArgumentException("Usuario requerido.");
         User u = userRepository.findById(userId).orElseThrow(() -> new IllegalArgumentException("Usuario no encontrado."));
         if (u.isDeleted() || u.getRole() == null) throw new IllegalArgumentException("No autorizado.");
-        if (!Set.of("CLIENTE", "ADMIN").contains(u.getRole().getName())) throw new IllegalArgumentException("No autorizado.");
+        UsuarioCompradorValidator.validarUsuarioComprador(u);
         return u;
     }
 
