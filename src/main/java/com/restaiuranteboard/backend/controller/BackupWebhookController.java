@@ -1,5 +1,6 @@
 package com.restaiuranteboard.backend.controller;
 
+import com.restaiuranteboard.backend.service.AiDatasetWebhookService;
 import com.restaiuranteboard.backend.service.BackupAutomatizacionService;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.PostMapping;
@@ -15,9 +16,14 @@ import java.util.Map;
 public class BackupWebhookController {
 
     private final BackupAutomatizacionService backupAutomatizacionService;
+    private final AiDatasetWebhookService aiDatasetWebhookService;
 
-    public BackupWebhookController(BackupAutomatizacionService backupAutomatizacionService) {
+    public BackupWebhookController(
+            BackupAutomatizacionService backupAutomatizacionService,
+            AiDatasetWebhookService aiDatasetWebhookService
+    ) {
         this.backupAutomatizacionService = backupAutomatizacionService;
+        this.aiDatasetWebhookService = aiDatasetWebhookService;
     }
 
     @PostMapping("/backup-workflow")
@@ -33,6 +39,17 @@ public class BackupWebhookController {
         String detail = body != null && body.get("detail") != null ? String.valueOf(body.get("detail")) : null;
         String extra = (op != null ? "op=" + op + " " : "") + (db != null ? "db=" + db + " " : "");
         backupAutomatizacionService.recordWorkflowResult(status, (extra + (detail != null ? detail : "")).trim());
+        return ResponseEntity.ok(Map.of("ok", true));
+    }
+
+    @PostMapping("/dataset-workflow")
+    public ResponseEntity<Map<String, Object>> datasetWorkflow(
+            @RequestHeader(value = "X-Backup-Signature", required = false) String signature,
+            @RequestBody(required = false) Map<String, Object> body) {
+        if (!aiDatasetWebhookService.verifySignature(signature)) {
+            return ResponseEntity.status(401).body(Map.of("ok", false));
+        }
+        aiDatasetWebhookService.handleWorkflowResult(body);
         return ResponseEntity.ok(Map.of("ok", true));
     }
 
