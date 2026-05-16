@@ -1,6 +1,7 @@
 package com.restaiuranteboard.backend.controller;
 
 import com.restaiuranteboard.backend.service.AiDatasetDispatchService;
+import com.restaiuranteboard.backend.service.AiDatasetJobService;
 import com.restaiuranteboard.backend.service.AiModelService;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.HttpStatus;
@@ -23,6 +24,9 @@ public class AiModelController {
 
     @Autowired
     private AiDatasetDispatchService aiDatasetDispatchService;
+
+    @Autowired
+    private AiDatasetJobService aiDatasetJobService;
 
     private static int len(String s) {
         return s == null ? 0 : s.length();
@@ -48,6 +52,15 @@ public class AiModelController {
             log.error("[DATASET] Error solicitando slot={}", slot, e);
             return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
                     .body(Map.of("message", "No se pudo iniciar la generación del dataset."));
+        }
+    }
+
+    @GetMapping("/dataset/jobs/{jobId}")
+    public ResponseEntity<?> estadoDataset(@PathVariable String jobId) {
+        try {
+            return ResponseEntity.ok(aiDatasetJobService.estadoPublico(jobId));
+        } catch (IllegalArgumentException e) {
+            return ResponseEntity.status(HttpStatus.NOT_FOUND).body(Map.of("message", e.getMessage()));
         }
     }
 

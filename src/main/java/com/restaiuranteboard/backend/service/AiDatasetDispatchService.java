@@ -1,5 +1,6 @@
 package com.restaiuranteboard.backend.service;
 
+import com.restaiuranteboard.backend.model.nosql.DatasetExportJob;
 import com.restaiuranteboard.backend.util.PostgresConnInfo;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.HttpEntity;
@@ -60,6 +61,12 @@ public class AiDatasetDispatchService {
     @Value("${app.backup.notify-secret:}")
     private String notifySecret;
 
+    private final AiDatasetJobService aiDatasetJobService;
+
+    public AiDatasetDispatchService(AiDatasetJobService aiDatasetJobService) {
+        this.aiDatasetJobService = aiDatasetJobService;
+    }
+
     public Map<String, Object> solicitarGeneracion(int slot) {
         if (slot < 1 || slot > 3) {
             throw new IllegalArgumentException("Slot de dataset no válido.");
@@ -100,8 +107,11 @@ public class AiDatasetDispatchService {
 
         String notifyUrl = publicApiBaseUrl.replaceAll("/+$", "") + "/api/webhooks/dataset-workflow";
 
+        DatasetExportJob job = aiDatasetJobService.crearPendiente(slot, fileName, backupKey);
+
         Map<String, Object> clientPayload = new HashMap<>();
         clientPayload.put("operation", "generate-dataset");
+        clientPayload.put("job_id", job.getId());
         clientPayload.put("slot", slot);
         clientPayload.put("backup_key", backupKey);
         clientPayload.put("file_name", fileName);
@@ -127,11 +137,13 @@ public class AiDatasetDispatchService {
             throw new IllegalArgumentException("No se pudo iniciar la generación en GitHub Actions.");
         }
 
-        return Map.of(
-                "accepted", true,
-                "slot", slot,
-                "fileName", fileName,
-                "message", "Generando dataset... Te avisaremos cuando esté listo."
-        );
+        Map<String, Object> out = new HashMap<>();
+        out.put("accepted", true);
+        out.put("jobId", job.getId());
+        out.put("slot", slot);
+        out.put("fileName", fileName);
+        out.put("status", AiDatasetJobService.STATUS_PENDING);
+        out.put("message", "Generando dataset... Te avisaremos cuando esté listo.");
+        return out;
     }
 }
