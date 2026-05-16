@@ -9,6 +9,7 @@ import org.springframework.data.repository.query.Param;
 import java.time.LocalDateTime;
 import java.util.Collection;
 import java.util.List;
+import java.util.Optional;
 import java.util.UUID;
 
 public interface RestaurantOrderRepository extends JpaRepository<RestaurantOrder, UUID>, JpaSpecificationExecutor<RestaurantOrder> {
@@ -58,4 +59,7 @@ public interface RestaurantOrderRepository extends JpaRepository<RestaurantOrder
             ORDER BY d
             """, nativeQuery = true)
     List<Object[]> countOrdersPerDay(@Param("from") LocalDateTime from, @Param("toEx") LocalDateTime toExclusive);
+
+    @Query("SELECT MIN(o.createdAt) FROM RestaurantOrder o")
+    Optional<LocalDateTime> findMinCreatedAt();
 }

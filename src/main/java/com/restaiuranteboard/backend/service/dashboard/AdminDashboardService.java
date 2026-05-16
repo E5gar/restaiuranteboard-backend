@@ -810,14 +810,24 @@ public class AdminDashboardService {
         double tasaReject = total > 0 ? round2(100.0 * rejects / total) : 0;
         double dwellAvg = agg.dwellAvg();
 
+        List<String> topIds = agg.topProductosOrdered().stream().map(Map.Entry::getKey).toList();
+        Map<String, String> nombresProducto = nombresProductoPorIds(topIds);
+
         List<Map<String, Object>> topProductosInteraccion = agg.topProductosOrdered().stream()
-                .map(e -> row("productoId", e.getKey(), "interacciones", e.getValue()))
+                .map(e -> {
+                    String pid = e.getKey();
+                    return row(
+                            "productoId", pid,
+                            "nombre", nombresProducto.getOrDefault(pid, pid),
+                            "interacciones", e.getValue()
+                    );
+                })
                 .toList();
 
         String productoMasVistoNombre = "";
         if (!agg.topProductosOrdered().isEmpty()) {
             String pid = agg.topProductosOrdered().get(0).getKey();
-            productoMasVistoNombre = productoRepository.findById(pid).map(Producto::getName).orElse("");
+            productoMasVistoNombre = nombresProducto.getOrDefault(pid, pid);
         }
 
         String slot1 = aiModelConfigRepository.findById("GLOBAL_AI_CONFIG")
@@ -846,6 +856,24 @@ public class AdminDashboardService {
                 "porCondicionClimaYAccion", agg.climaPorAccion(),
                 "porSegmentoDia", agg.porSegmento()
         );
+    }
+
+    private Map<String, String> nombresProductoPorIds(Collection<String> ids) {
+        if (ids == null || ids.isEmpty()) {
+            return Map.of();
+        }
+        Map<String, String> nombres = new HashMap<>();
+        for (Producto p : productoRepository.findAllById(ids)) {
+            if (p.getId() == null) {
+                continue;
+            }
+            String name = p.getName();
+            nombres.put(p.getId(), name != null && !name.isBlank() ? name : p.getId());
+        }
+        for (String id : ids) {
+            nombres.putIfAbsent(id, id);
+        }
+        return nombres;
     }
 
     private Map<String, Double> costoRecetaPorProducto() {
@@ -939,5 +967,56 @@ public class AdminDashboardService {
     }
 
     private record InvProj(int id, String name, double stock, double price, String category) {
+    }
+
+    @Transactional(readOnly = true)
+    public Map<String, String> rangoFechasDisponible(String pestana) {
+        String key = pestana == null ? "" : pestana.trim().toLowerCase(Locale.ROOT);
+        LocalDate hoy = LocalDate.now();
+        LocalDate min = resolverFechaMinimaPestana(key);
+        if (min.isAfter(hoy)) {
+            min = hoy;
+        }
+        log.info("[DASHBOARD] rango-fechas pestana={} fechaMinima={} fechaMaxima={}", key, min, hoy);
+        return Map.of(
+                "fechaMinima", min.toString(),
+                "fechaMaxima", hoy.toString()
+        );
+    }
+
+    private LocalDate resolverFechaMinimaPestana(String pestana) {
+        LocalDate hoy = LocalDate.now();
+        return switch (pestana) {
+            case "ventas", "operacion", "productos" ->
+                    toLocalDate(orderRepository.findMinCreatedAt()).orElse(hoy);
+            case "inventario" ->
+                    toLocalDate(movementRepository.findMinCreatedAt()).orElse(hoy);
+            case "clientes" ->
+                    earliestLocalDate(
+                            orderRepository.findMinCreatedAt(),
+                            userRepository.findMinClienteCreatedAt()
+                    ).orElse(hoy);
+            case "seguridad" ->
+                    toLocalDate(loginAuditRepository.findMinAttemptedAt()).orElse(hoy);
+            case "interacciones" ->
+                    toLocalDate(userInteractionAnalyticsSupport.findMinTimestamp()).orElse(hoy);
+            default -> hoy;
+        };
+    }
+
+    private static Optional<LocalDate> toLocalDate(Optional<LocalDateTime> value) {
+        return value.map(LocalDateTime::toLocalDate);
+    }
+
+    private static Optional<LocalDate> earliestLocalDate(Optional<LocalDateTime> a, Optional<LocalDateTime> b) {
+        Optional<LocalDate> da = toLocalDate(a);
+        Optional<LocalDate> db = toLocalDate(b);
+        if (da.isEmpty()) {
+            return db;
+        }
+        if (db.isEmpty()) {
+            return da;
+        }
+        return Optional.of(da.get().isBefore(db.get()) ? da.get() : db.get());
     }
 }

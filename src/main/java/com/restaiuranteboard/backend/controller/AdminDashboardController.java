@@ -42,6 +42,12 @@ public class AdminDashboardController {
         return to != null ? to : LocalDateTime.now().plusMinutes(1);
     }
 
+    @GetMapping("/rango-fechas")
+    public ResponseEntity<Map<String, String>> rangoFechas(@RequestParam String pestana) {
+        log.info("[DASHBOARD-REQ] GET rango-fechas pestana={}", pestana);
+        return ResponseEntity.ok(adminDashboardService.rangoFechasDisponible(pestana));
+    }
+
     @GetMapping("/ventas-pedidos")
     public ResponseEntity<Map<String, Object>> ventasPedidos(
             @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE_TIME) LocalDateTime from,

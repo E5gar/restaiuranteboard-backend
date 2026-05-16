@@ -7,6 +7,7 @@ import org.springframework.data.repository.query.Param;
 
 import java.time.LocalDateTime;
 import java.util.List;
+import java.util.Optional;
 
 public interface LoginAuditRepository extends JpaRepository<LoginAudit, Integer> {
     List<LoginAudit> findByAttemptedAtBetween(LocalDateTime from, LocalDateTime to);
@@ -31,5 +32,8 @@ public interface LoginAuditRepository extends JpaRepository<LoginAudit, Integer>
             @Param("st") String status,
             @Param("rol") String rol
     );
+
+    @Query("SELECT MIN(la.attemptedAt) FROM LoginAudit la")
+    Optional<LocalDateTime> findMinAttemptedAt();
 }
 

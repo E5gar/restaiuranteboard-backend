@@ -1,8 +1,11 @@
 package com.restaiuranteboard.backend.controller;
 
 import com.restaiuranteboard.backend.service.AiModelService;
+import com.restaiuranteboard.backend.service.AiTrainingDatasetExportService;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatus;
+import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 import org.slf4j.Logger;
@@ -20,6 +23,9 @@ public class AiModelController {
     @Autowired
     private AiModelService aiModelService;
 
+    @Autowired
+    private AiTrainingDatasetExportService aiTrainingDatasetExportService;
+
     private static int len(String s) {
         return s == null ? 0 : s.length();
     }
@@ -32,6 +38,25 @@ public class AiModelController {
     @GetMapping("/publico")
     public ResponseEntity<?> obtenerConfigPublica() {
         return ResponseEntity.ok(aiModelService.obtenerConfigPublica());
+    }
+
+    @GetMapping("/dataset/{slot}")
+    public ResponseEntity<?> descargarDataset(@PathVariable int slot) {
+        try {
+            byte[] zip = aiTrainingDatasetExportService.buildZip(slot);
+            String filename = aiTrainingDatasetExportService.zipFileName(slot);
+            return ResponseEntity.ok()
+                    .header(HttpHeaders.CONTENT_DISPOSITION, "attachment; filename=\"" + filename + "\"")
+                    .contentType(MediaType.parseMediaType("application/zip"))
+                    .contentLength(zip.length)
+                    .body(zip);
+        } catch (IllegalArgumentException e) {
+            return ResponseEntity.status(HttpStatus.BAD_REQUEST).body(Map.of("message", e.getMessage()));
+        } catch (Exception e) {
+            log.error("[DATASET] Error generando slot={}", slot, e);
+            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
+                    .body(Map.of("message", "No se pudo generar el dataset de entrenamiento."));
+        }
     }
 
     @PatchMapping("/toggle")

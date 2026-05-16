@@ -32,4 +32,7 @@ public interface UserRepository extends JpaRepository<User, UUID> {
             WHERE u.id IN :ids
             """, nativeQuery = true)
     List<Object[]> findNamesByIds(@Param("ids") List<UUID> ids);
+
+    @Query("SELECT MIN(u.createdAt) FROM User u WHERE COALESCE(u.isDeleted, false) = false AND u.role.name = 'CLIENTE'")
+    Optional<LocalDateTime> findMinClienteCreatedAt();
 }

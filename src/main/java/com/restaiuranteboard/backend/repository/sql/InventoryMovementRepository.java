@@ -8,6 +8,7 @@ import org.springframework.data.repository.query.Param;
 import java.math.BigDecimal;
 import java.time.LocalDateTime;
 import java.util.List;
+import java.util.Optional;
 
 public interface InventoryMovementRepository extends JpaRepository<InventoryMovement, Integer> {
     List<InventoryMovement> findByCreatedAtBetween(LocalDateTime from, LocalDateTime to);
@@ -93,4 +94,7 @@ public interface InventoryMovementRepository extends JpaRepository<InventoryMove
             ORDER BY m.inventory_id, d
             """, nativeQuery = true)
     List<Object[]> aggregateDailyByInventory(@Param("from") LocalDateTime from, @Param("toEx") LocalDateTime toExclusive);
+
+    @Query("SELECT MIN(m.createdAt) FROM InventoryMovement m")
+    Optional<LocalDateTime> findMinCreatedAt();
 }

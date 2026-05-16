@@ -9,7 +9,10 @@ import org.springframework.data.mongodb.core.query.Criteria;
 import org.springframework.stereotype.Repository;
 
 import java.time.LocalDateTime;
+import java.time.ZoneId;
 import java.util.ArrayList;
+import java.util.Date;
+import java.util.Optional;
 import java.util.Arrays;
 import java.util.HashMap;
 import java.util.LinkedHashMap;
@@ -26,6 +29,26 @@ public class UserInteractionAnalyticsSupport {
 
     public UserInteractionAnalyticsSupport(MongoTemplate mongoTemplate) {
         this.mongoTemplate = mongoTemplate;
+    }
+
+    public Optional<LocalDateTime> findMinTimestamp() {
+        Document doc = mongoTemplate.getCollection(COLLECTION)
+                .find(new Document("timestamp", new Document("$exists", true)))
+                .projection(new Document("timestamp", 1))
+                .sort(new Document("timestamp", 1))
+                .limit(1)
+                .first();
+        if (doc == null) {
+            return Optional.empty();
+        }
+        Object ts = doc.get("timestamp");
+        if (ts instanceof LocalDateTime ldt) {
+            return Optional.of(ldt);
+        }
+        if (ts instanceof Date d) {
+            return Optional.of(LocalDateTime.ofInstant(d.toInstant(), ZoneId.systemDefault()));
+        }
+        return Optional.empty();
     }
 
     public InteractionAgg aggregate(
