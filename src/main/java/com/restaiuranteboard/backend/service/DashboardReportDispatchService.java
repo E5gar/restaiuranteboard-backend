@@ -119,8 +119,12 @@ public class DashboardReportDispatchService {
                 request.getFilters()
         );
 
+        Map<String, Object> notify = Map.of(
+                "url", notifyUrl,
+                "secret", notifySecret
+        );
+
         Map<String, Object> clientPayload = new HashMap<>();
-        clientPayload.put("operation", "generate-dashboard-report");
         clientPayload.put("job_id", job.getId());
         clientPayload.put("tab", tab);
         clientPayload.put("format", format);
@@ -129,8 +133,7 @@ public class DashboardReportDispatchService {
         clientPayload.put("export_token", exportToken);
         clientPayload.put("snapshot_url", snapshotBase + "/" + job.getId() + "/snapshot");
         clientPayload.put("b2", b2);
-        clientPayload.put("notify_url", notifyUrl);
-        clientPayload.put("notify_secret", notifySecret);
+        clientPayload.put("notify", notify);
 
         Map<String, Object> payload = Map.of(
                 "event_type", "trigger-dashboard-report",
@@ -146,7 +149,7 @@ public class DashboardReportDispatchService {
         try {
             restTemplate.postForEntity(url, httpRequest, String.class);
         } catch (Exception e) {
-            throw new IllegalArgumentException("No se pudo iniciar la generación en GitHub Actions.");
+            throw new IllegalArgumentException("No se pudo iniciar la generación en GitHub Actions." + e.getMessage());
         }
 
         Map<String, Object> out = new HashMap<>();

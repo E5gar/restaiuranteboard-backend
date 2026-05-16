@@ -134,7 +134,7 @@ public class AiDatasetDispatchService {
         try {
             restTemplate.postForEntity(url, request, String.class);
         } catch (Exception e) {
-            throw new IllegalArgumentException("No se pudo iniciar la generación en GitHub Actions.");
+            throw new IllegalArgumentException("No se pudo iniciar la generación en GitHub Actions." + e.getMessage());
         }
 
         Map<String, Object> out = new HashMap<>();
