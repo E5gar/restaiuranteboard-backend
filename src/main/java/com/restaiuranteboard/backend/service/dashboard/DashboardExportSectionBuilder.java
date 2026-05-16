@@ -40,22 +40,26 @@ public final class DashboardExportSectionBuilder {
                     continue;
                 }
                 if (list.get(0) instanceof Map<?, ?>) {
-                    String kind = includeCharts ? "chart" : "table";
-                    if (includeTables) {
-                        kind = "table";
-                    } else if (includeCharts) {
-                        kind = "chart";
-                    } else {
+                    if (!includeTables && !includeCharts) {
                         continue;
                     }
-                    sections.add(tableFromMaps(title, list, kind));
+                    String kind = includeCharts ? "chart" : "table";
+                    Map<String, Object> section = tableFromMaps(title, list, kind);
+                    section.put("sourceKey", key);
+                    sections.add(section);
                 }
                 continue;
             }
             if (val instanceof Map<?, ?> map) {
                 if (isNumericMap(map)) {
                     if (includeCharts) {
-                        sections.add(mapToTwoColSection(title, map, "chart"));
+                        Map<String, Object> section = mapToTwoColSection(title, map, "chart");
+                        section.put("sourceKey", key);
+                        sections.add(section);
+                    } else if (includeTables) {
+                        Map<String, Object> section = mapToTwoColSection(title, map, "table");
+                        section.put("sourceKey", key);
+                        sections.add(section);
                     }
                 } else if (includeTables) {
                     sections.add(nestedMapSection(title, map));
@@ -106,6 +110,7 @@ public final class DashboardExportSectionBuilder {
         }
         Map<String, Object> s = new LinkedHashMap<>();
         s.put("kind", "chart");
+        s.put("chartType", "heatmap");
         s.put("title", title);
         s.put("columns", columns);
         s.put("rows", rows);
@@ -130,6 +135,9 @@ public final class DashboardExportSectionBuilder {
         }
         Map<String, Object> s = new LinkedHashMap<>();
         s.put("kind", kind);
+        if ("chart".equals(kind)) {
+            s.put("chartType", inferChartType(title, columns));
+        }
         s.put("title", title);
         s.put("columns", columns.stream().map(DashboardExportSectionBuilder::humanizeKey).toList());
         s.put("rows", rows);
@@ -143,10 +151,34 @@ public final class DashboardExportSectionBuilder {
         }
         Map<String, Object> s = new LinkedHashMap<>();
         s.put("kind", kind);
+        if ("chart".equals(kind)) {
+            s.put("chartType", inferChartType(title, List.of("Etiqueta", "Valor")));
+        }
         s.put("title", title);
         s.put("columns", List.of("Etiqueta", "Valor"));
         s.put("rows", rows);
         return s;
+    }
+
+    private static String inferChartType(String title, List<String> columns) {
+        String t = title != null ? title.toLowerCase(Locale.ROOT) : "";
+        String cols = String.join(" ", columns).toLowerCase(Locale.ROOT);
+        if (t.contains("mapa de calor") || t.contains("heatmap")) {
+            return "heatmap";
+        }
+        if (t.contains("clima") && (cols.contains("temp") || cols.contains("monto"))) {
+            return "scatter";
+        }
+        if (t.contains("por hora") || cols.contains("hora") || t.contains("embudo")) {
+            return "line";
+        }
+        if (t.contains("distribución") || t.contains("por estado") || t.contains("frecuencia")) {
+            return "pie";
+        }
+        if (t.contains("top ") || cols.contains("unidades") || cols.contains("interacciones")) {
+            return "horizontal_bar";
+        }
+        return "bar";
     }
 
     private static Map<String, Object> nestedMapSection(String title, Map<?, ?> map) {
