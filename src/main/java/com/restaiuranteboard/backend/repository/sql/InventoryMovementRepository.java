@@ -81,4 +81,16 @@ public interface InventoryMovementRepository extends JpaRepository<InventoryMove
             ORDER BY 1
             """, nativeQuery = true)
     List<Object[]> sumAbastecimientoPorSemana(@Param("from") LocalDateTime from, @Param("toEx") LocalDateTime toExclusive, @Param("tipo") String tipoMovimiento);
+
+    @Query(value = """
+            SELECT m.inventory_id,
+                   CAST(m.created_at AS date) AS d,
+                   COALESCE(SUM(CASE WHEN UPPER(TRIM(m.movement_type)) = 'SALIDA' THEN ABS(m.quantity) ELSE 0 END), 0),
+                   COALESCE(SUM(CASE WHEN UPPER(TRIM(m.movement_type)) = 'ABASTECIMIENTO' THEN m.quantity ELSE 0 END), 0)
+            FROM inventory_movements m
+            WHERE m.created_at >= :from AND m.created_at < :toEx
+            GROUP BY m.inventory_id, CAST(m.created_at AS date)
+            ORDER BY m.inventory_id, d
+            """, nativeQuery = true)
+    List<Object[]> aggregateDailyByInventory(@Param("from") LocalDateTime from, @Param("toEx") LocalDateTime toExclusive);
 }

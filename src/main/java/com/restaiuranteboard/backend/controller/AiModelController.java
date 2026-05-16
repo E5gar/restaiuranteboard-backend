@@ -5,6 +5,8 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import java.util.Map;
 
@@ -13,8 +15,14 @@ import java.util.Map;
 @RequestMapping("/api/ia-modelos")
 public class AiModelController {
 
+    private static final Logger log = LoggerFactory.getLogger(AiModelController.class);
+
     @Autowired
     private AiModelService aiModelService;
+
+    private static int len(String s) {
+        return s == null ? 0 : s.length();
+    }
 
     @GetMapping
     public ResponseEntity<?> obtenerConfigAdmin() {
@@ -83,6 +91,43 @@ public class AiModelController {
         } catch (Exception e) {
             return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
                     .body(Map.of("message", "No se pudo cargar el paquete de reglas del Slot 2."));
+        }
+    }
+
+    @PostMapping("/slot-3/upload")
+    public ResponseEntity<?> subirSlot3(@RequestBody Map<String, String> body) {
+        String modelFn = body == null ? null : body.get("modelFileName");
+        String featFn = body == null ? null : body.get("featScalerFileName");
+        String yFn = body == null ? null : body.get("yScalerFileName");
+        String metaFn = body == null ? null : body.get("metaModeloFileName");
+        log.info("[SLOT3-UPLOAD] Controller: petición recibida model={} feat={} y={} meta={}",
+                modelFn, featFn, yFn, metaFn);
+        log.debug("[SLOT3-UPLOAD] Controller: longitudes base64 model={} feat={} y={} meta={}",
+                len(body == null ? null : body.get("modelFileBase64")),
+                len(body == null ? null : body.get("featScalerBase64")),
+                len(body == null ? null : body.get("yScalerBase64")),
+                len(body == null ? null : body.get("metaModeloBase64")));
+        try {
+            var out = aiModelService.subirArchivosSlot3(
+                    body == null ? null : body.get("modelFileName"),
+                    body == null ? null : body.get("modelFileBase64"),
+                    body == null ? null : body.get("featScalerFileName"),
+                    body == null ? null : body.get("featScalerBase64"),
+                    body == null ? null : body.get("yScalerFileName"),
+                    body == null ? null : body.get("yScalerBase64"),
+                    body == null ? null : body.get("metaModeloFileName"),
+                    body == null ? null : body.get("metaModeloBase64")
+            );
+            log.info("[SLOT3-UPLOAD] Controller: subida OK slots en respuesta={}",
+                    out.get("slots") instanceof java.util.List<?> l ? l.size() : -1);
+            return ResponseEntity.ok(out);
+        } catch (IllegalArgumentException e) {
+            log.warn("[SLOT3-UPLOAD] Controller: validación o meta falló: {}", e.getMessage());
+            return ResponseEntity.status(HttpStatus.BAD_REQUEST).body(Map.of("message", e.getMessage()));
+        } catch (Exception e) {
+            log.error("[SLOT3-UPLOAD] Controller: error no controlado", e);
+            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
+                    .body(Map.of("message", "No se pudo cargar el paquete del Slot 3."));
         }
     }
 }

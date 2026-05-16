@@ -13,6 +13,9 @@ import com.restaiuranteboard.backend.repository.nosql.AiModelConfigRepository;
 import com.restaiuranteboard.backend.repository.nosql.ProductoRepository;
 import com.restaiuranteboard.backend.repository.nosql.UserInteractionRepository;
 import com.restaiuranteboard.backend.repository.sql.RecipeRepository;
+import com.restaiuranteboard.backend.service.dashboard.InventoryPredictionService;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.ResponseEntity;
 import org.springframework.http.client.SimpleClientHttpRequestFactory;
@@ -27,6 +30,7 @@ import java.util.stream.Collectors;
 
 @Service
 public class AiModelService {
+    private static final Logger log = LoggerFactory.getLogger(AiModelService.class);
     private static final String CONFIG_ID = "GLOBAL_AI_CONFIG";
     
     @Value("${ai.inference.url}")
@@ -44,6 +48,8 @@ public class AiModelService {
     @Autowired
     private AiModelConfigRepository aiModelConfigRepository;
     @Autowired
+    private AiModelSlot3GridFsService aiModelSlot3GridFsService;
+    @Autowired
     private ProductoRepository productoRepository;
     @Autowired
     private UserInteractionRepository userInteractionRepository;
@@ -53,6 +59,8 @@ public class AiModelService {
     private ContextoInteligenciaService contextoInteligenciaService;
     @Autowired
     private ObjectMapper objectMapper;
+    @Autowired
+    private InventoryPredictionService inventoryPredictionService;
 
     private final RestTemplate hfRestTemplate = createHfRestTemplate();
 
@@ -155,6 +163,125 @@ public class AiModelService {
         slot2.setStatus("ACTIVO");
         slot2.setSlotEnabled(true);
         aiModelConfigRepository.save(config);
+        return toResponse(config, true);
+    }
+
+    public Map<String, Object> subirArchivosSlot3(
+            String modelFileName,
+            String modelFileBase64,
+            String featScalerFileName,
+            String featScalerBase64,
+            String yScalerFileName,
+            String yScalerBase64,
+            String metaModeloFileName,
+            String metaModeloBase64
+    ) {
+        log.info("[SLOT3-UPLOAD] Servicio: inicio modelFile={} featFile={} yFile={} metaFile={}",
+                modelFileName, featScalerFileName, yScalerFileName, metaModeloFileName);
+        log.debug("[SLOT3-UPLOAD] Servicio: longitudes base64 model={} feat={} y={} meta={}",
+                b64Len(modelFileBase64), b64Len(featScalerBase64), b64Len(yScalerBase64), b64Len(metaModeloBase64));
+
+        log.debug("[SLOT3-UPLOAD] Servicio: validando campos obligatorios");
+        if (isBlank(modelFileName) || isBlank(modelFileBase64)) {
+            log.warn("[SLOT3-UPLOAD] Servicio: falta modelo .keras");
+            throw new IllegalArgumentException("El archivo del modelo (.keras) es obligatorio.");
+        }
+        if (isBlank(featScalerFileName) || isBlank(featScalerBase64)) {
+            log.warn("[SLOT3-UPLOAD] Servicio: falta feat_scaler");
+            throw new IllegalArgumentException("El archivo feat_scaler.pkl es obligatorio.");
+        }
+        if (isBlank(yScalerFileName) || isBlank(yScalerBase64)) {
+            log.warn("[SLOT3-UPLOAD] Servicio: falta y_scaler");
+            throw new IllegalArgumentException("El archivo y_scaler.pkl es obligatorio.");
+        }
+        if (isBlank(metaModeloFileName) || isBlank(metaModeloBase64)) {
+            log.warn("[SLOT3-UPLOAD] Servicio: falta meta_modelo.json");
+            throw new IllegalArgumentException("El archivo meta_modelo.json es obligatorio.");
+        }
+
+        log.debug("[SLOT3-UPLOAD] Servicio: validando extensiones de archivo");
+        if (!modelFileName.toLowerCase(Locale.ROOT).endsWith(".keras")) {
+            log.warn("[SLOT3-UPLOAD] Servicio: extensión modelo inválida: {}", modelFileName);
+            throw new IllegalArgumentException("El modelo debe ser .keras.");
+        }
+        if (!featScalerFileName.toLowerCase(Locale.ROOT).endsWith(".pkl")) {
+            log.warn("[SLOT3-UPLOAD] Servicio: extensión feat_scaler inválida: {}", featScalerFileName);
+            throw new IllegalArgumentException("feat_scaler debe ser .pkl.");
+        }
+        if (!yScalerFileName.toLowerCase(Locale.ROOT).endsWith(".pkl")) {
+            log.warn("[SLOT3-UPLOAD] Servicio: extensión y_scaler inválida: {}", yScalerFileName);
+            throw new IllegalArgumentException("y_scaler debe ser .pkl.");
+        }
+        if (!metaModeloFileName.toLowerCase(Locale.ROOT).endsWith(".json")) {
+            log.warn("[SLOT3-UPLOAD] Servicio: extensión meta inválida: {}", metaModeloFileName);
+            throw new IllegalArgumentException("meta_modelo debe ser .json.");
+        }
+
+        log.debug("[SLOT3-UPLOAD] Servicio: decodificando Base64 (pkls, meta y modelo)");
+        byte[] featBytes;
+        byte[] yBytes;
+        byte[] metaBytes;
+        byte[] modelBytes;
+        try {
+            featBytes = decodeBase64Payload(featScalerBase64);
+            yBytes = decodeBase64Payload(yScalerBase64);
+            metaBytes = decodeBase64Payload(metaModeloBase64);
+            modelBytes = decodeBase64Payload(modelFileBase64);
+        } catch (IllegalArgumentException e) {
+            log.warn("[SLOT3-UPLOAD] Servicio: Base64 inválido: {}", e.getMessage());
+            throw e;
+        }
+        log.info("[SLOT3-UPLOAD] Servicio: bytes tras decodificar feat_pkl={} y_pkl={} meta_json={} model_keras={}",
+                featBytes.length, yBytes.length, metaBytes.length, modelBytes.length);
+
+        log.info("[SLOT3-UPLOAD] Servicio: validando estructura de meta_modelo.json");
+        try {
+            inventoryPredictionService.validarMetaModeloInventario(metaModeloBase64.trim());
+        } catch (IllegalArgumentException e) {
+            log.warn("[SLOT3-UPLOAD] Servicio: meta_modelo inválido: {}", e.getMessage());
+            throw e;
+        }
+        log.info("[SLOT3-UPLOAD] Servicio: meta_modelo.json OK");
+
+        log.info("[SLOT3-UPLOAD] Servicio: escribiendo archivos en GridFS");
+        String gridModelId = aiModelSlot3GridFsService.storeBytes(modelBytes, modelFileName.trim());
+        String gridFeatId = aiModelSlot3GridFsService.storeBytes(featBytes, featScalerFileName.trim());
+        String gridYId = aiModelSlot3GridFsService.storeBytes(yBytes, yScalerFileName.trim());
+        String gridMetaId = aiModelSlot3GridFsService.storeBytes(metaBytes, metaModeloFileName.trim());
+
+        AiModelConfig config = getOrCreateConfig();
+        AiModelConfig.ModelSlot slot3 = findSlot(config, 3);
+        String prevModelGrid = slot3.getModelFileGridFsId();
+        String prevFeatGrid = slot3.getFeatScalerGridFsId();
+        String prevYGrid = slot3.getYScalerGridFsId();
+        String prevMetaGrid = slot3.getMetaModeloGridFsId();
+
+        slot3.setModelFileBase64(null);
+        slot3.setFeatScalerBase64(null);
+        slot3.setYScalerBase64(null);
+        slot3.setMetaModeloBase64(null);
+        slot3.setModelFileGridFsId(gridModelId);
+        slot3.setFeatScalerGridFsId(gridFeatId);
+        slot3.setYScalerGridFsId(gridYId);
+        slot3.setMetaModeloGridFsId(gridMetaId);
+        slot3.setModelFileName(modelFileName.trim());
+        slot3.setFeatScalerFileName(featScalerFileName.trim());
+        slot3.setYScalerFileName(yScalerFileName.trim());
+        slot3.setMetaModeloFileName(metaModeloFileName.trim());
+        slot3.setUploadedAt(LocalDateTime.now());
+        slot3.setStatus("ACTIVO");
+        log.debug("[SLOT3-UPLOAD] Servicio: persistiendo ai_model_config con GridFS ids");
+        try {
+            aiModelConfigRepository.save(config);
+        } catch (Exception e) {
+            log.error("[SLOT3-UPLOAD] Servicio: error al guardar configuración", e);
+            throw e;
+        }
+        aiModelSlot3GridFsService.deleteIfPresent(prevModelGrid);
+        aiModelSlot3GridFsService.deleteIfPresent(prevFeatGrid);
+        aiModelSlot3GridFsService.deleteIfPresent(prevYGrid);
+        aiModelSlot3GridFsService.deleteIfPresent(prevMetaGrid);
+        log.info("[SLOT3-UPLOAD] Servicio: slot 3 ACTIVO uploadedAt={}", slot3.getUploadedAt());
         return toResponse(config, true);
     }
 
@@ -592,13 +719,36 @@ public class AiModelService {
             m.put("rulesFileName", s.getRulesFileName());
             m.put("frequencyFileName", s.getFrequencyFileName());
             m.put("configFileName", s.getConfigFileName());
+            m.put("featScalerFileName", s.getFeatScalerFileName());
+            m.put("yScalerFileName", s.getYScalerFileName());
+            m.put("metaModeloFileName", s.getMetaModeloFileName());
             m.put("uploadedAt", s.getUploadedAt());
+            if (s.getSlotNumber() == 3) {
+                m.put("modelFileGridFsId", s.getModelFileGridFsId());
+                m.put("featScalerGridFsId", s.getFeatScalerGridFsId());
+                m.put("yScalerGridFsId", s.getYScalerGridFsId());
+                m.put("metaModeloGridFsId", s.getMetaModeloGridFsId());
+            }
             if (includeFiles) {
-                m.put("modelFileBase64", s.getModelFileBase64());
-                m.put("encodersFileBase64", s.getEncodersFileBase64());
-                m.put("rulesFileBase64", s.getRulesFileBase64());
-                m.put("frequencyFileBase64", s.getFrequencyFileBase64());
-                m.put("configFileBase64", s.getConfigFileBase64());
+                if (s.getSlotNumber() == 3) {
+                    m.put("modelFileBase64", slot3ModelB64(s));
+                    m.put("encodersFileBase64", s.getEncodersFileBase64());
+                    m.put("rulesFileBase64", s.getRulesFileBase64());
+                    m.put("frequencyFileBase64", s.getFrequencyFileBase64());
+                    m.put("configFileBase64", s.getConfigFileBase64());
+                    m.put("featScalerBase64", slot3FeatB64(s));
+                    m.put("yScalerBase64", slot3YB64(s));
+                    m.put("metaModeloBase64", slot3MetaB64(s));
+                } else {
+                    m.put("modelFileBase64", s.getModelFileBase64());
+                    m.put("encodersFileBase64", s.getEncodersFileBase64());
+                    m.put("rulesFileBase64", s.getRulesFileBase64());
+                    m.put("frequencyFileBase64", s.getFrequencyFileBase64());
+                    m.put("configFileBase64", s.getConfigFileBase64());
+                    m.put("featScalerBase64", s.getFeatScalerBase64());
+                    m.put("yScalerBase64", s.getYScalerBase64());
+                    m.put("metaModeloBase64", s.getMetaModeloBase64());
+                }
             }
             slots.add(m);
         }
@@ -626,8 +776,9 @@ public class AiModelService {
 
             AiModelConfig.ModelSlot slot3 = new AiModelConfig.ModelSlot();
             slot3.setSlotNumber(3);
-            slot3.setTitulo("Slot 3: Próximamente");
+            slot3.setTitulo("Slot 3: Predicción de Inventario");
             slot3.setStatus("VACIO");
+            slot3.setSlotEnabled(false);
 
             cfg.setSlots(new ArrayList<>(List.of(slot1, slot2, slot3)));
             return aiModelConfigRepository.save(cfg);
@@ -639,6 +790,38 @@ public class AiModelService {
                 .filter(s -> s.getSlotNumber() == slotNumber)
                 .findFirst()
                 .orElseThrow(() -> new IllegalArgumentException("Slot no encontrado."));
+    }
+
+    private String slot3ModelB64(AiModelConfig.ModelSlot s) {
+        if (!isBlank(s.getModelFileBase64())) {
+            return s.getModelFileBase64();
+        }
+        return aiModelSlot3GridFsService.readAsDataUrlBase64(s.getModelFileGridFsId());
+    }
+
+    private String slot3FeatB64(AiModelConfig.ModelSlot s) {
+        if (!isBlank(s.getFeatScalerBase64())) {
+            return s.getFeatScalerBase64();
+        }
+        return aiModelSlot3GridFsService.readAsDataUrlBase64(s.getFeatScalerGridFsId());
+    }
+
+    private String slot3YB64(AiModelConfig.ModelSlot s) {
+        if (!isBlank(s.getYScalerBase64())) {
+            return s.getYScalerBase64();
+        }
+        return aiModelSlot3GridFsService.readAsDataUrlBase64(s.getYScalerGridFsId());
+    }
+
+    private String slot3MetaB64(AiModelConfig.ModelSlot s) {
+        if (!isBlank(s.getMetaModeloBase64())) {
+            return s.getMetaModeloBase64();
+        }
+        return aiModelSlot3GridFsService.readAsDataUrlBase64(s.getMetaModeloGridFsId());
+    }
+
+    private int b64Len(String s) {
+        return s == null ? 0 : s.length();
     }
 
     private boolean isBlank(String s) {

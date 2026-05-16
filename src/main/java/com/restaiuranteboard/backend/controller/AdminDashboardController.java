@@ -1,9 +1,12 @@
 package com.restaiuranteboard.backend.controller;
 
 import com.restaiuranteboard.backend.service.dashboard.AdminDashboardService;
+import com.restaiuranteboard.backend.service.dashboard.InventoryPredictionService;
 import org.springframework.format.annotation.DateTimeFormat;
+import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
@@ -17,9 +20,14 @@ import java.util.UUID;
 public class AdminDashboardController {
 
     private final AdminDashboardService adminDashboardService;
+    private final InventoryPredictionService inventoryPredictionService;
 
-    public AdminDashboardController(AdminDashboardService adminDashboardService) {
+    public AdminDashboardController(
+            AdminDashboardService adminDashboardService,
+            InventoryPredictionService inventoryPredictionService
+    ) {
         this.adminDashboardService = adminDashboardService;
+        this.inventoryPredictionService = inventoryPredictionService;
     }
 
     private static LocalDateTime fromDef(LocalDateTime from) {
@@ -123,5 +131,14 @@ public class AdminDashboardController {
         LocalDateTime f0 = fromDef(from);
         LocalDateTime t0 = toDefExclusive(to);
         return ResponseEntity.ok(adminDashboardService.interacciones(f0, t0, action, condicionClima, segmento, userId));
+    }
+
+    @PostMapping("/inventario-prediccion")
+    public ResponseEntity<?> inventarioPrediccion() {
+        try {
+            return ResponseEntity.ok(inventoryPredictionService.ejecutarPrediccionInventario());
+        } catch (IllegalStateException | IllegalArgumentException e) {
+            return ResponseEntity.status(HttpStatus.BAD_REQUEST).body(Map.of("message", e.getMessage()));
+        }
     }
 }

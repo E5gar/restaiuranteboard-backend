@@ -49,4 +49,13 @@ public interface RestaurantOrderRepository extends JpaRepository<RestaurantOrder
             GROUP BY o.client_id
             """, nativeQuery = true)
     List<Object[]> aggregateEntregadosPorCliente(@Param("from") LocalDateTime from, @Param("toEx") LocalDateTime toExclusive);
+
+    @Query(value = """
+            SELECT CAST(o.created_at AS date) AS d, COUNT(*)
+            FROM orders o
+            WHERE o.created_at >= :from AND o.created_at < :toEx
+            GROUP BY CAST(o.created_at AS date)
+            ORDER BY d
+            """, nativeQuery = true)
+    List<Object[]> countOrdersPerDay(@Param("from") LocalDateTime from, @Param("toEx") LocalDateTime toExclusive);
 }

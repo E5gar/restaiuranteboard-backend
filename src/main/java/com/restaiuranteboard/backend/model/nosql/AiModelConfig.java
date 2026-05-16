@@ -32,6 +32,16 @@ public class AiModelConfig {
         private String frequencyFileBase64;
         private String configFileName;
         private String configFileBase64;
+        private String featScalerFileName;
+        private String featScalerBase64;
+        private String yScalerFileName;
+        private String yScalerBase64;
+        private String metaModeloFileName;
+        private String metaModeloBase64;
+        private String modelFileGridFsId;
+        private String featScalerGridFsId;
+        private String yScalerGridFsId;
+        private String metaModeloGridFsId;
         private LocalDateTime uploadedAt;
     }
 }
