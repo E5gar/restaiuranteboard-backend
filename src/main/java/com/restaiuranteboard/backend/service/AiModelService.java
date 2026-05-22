@@ -72,12 +72,35 @@ public class AiModelService {
     }
 
     public Map<String, Object> obtenerConfigPublica() {
-        return toResponse(getOrCreateConfig(), false);
+        AiModelConfig config = getOrCreateConfig();
+        Map<String, Object> body = new LinkedHashMap<>(toResponse(config, false));
+        body.put("slot1Activo", slotActivo(config, 1));
+        body.put("slot2Activo", slotActivo(config, 2));
+        body.put("slot3Activo", slotActivo(config, 3));
+        return body;
+    }
+
+    public boolean slotActivo(int slotNumber) {
+        return slotActivo(getOrCreateConfig(), slotNumber);
+    }
+
+    private boolean slotActivo(AiModelConfig config, int slotNumber) {
+        if (!config.isIaActiva()) {
+            return false;
+        }
+        return config.getSlots().stream()
+                .filter(s -> s.getSlotNumber() == slotNumber)
+                .findFirst()
+                .map(AiModelConfig.ModelSlot::isSlotEnabled)
+                .orElse(false);
     }
 
     public Map<String, Object> actualizarIaActiva(boolean iaActiva) {
         AiModelConfig config = getOrCreateConfig();
         config.setIaActiva(iaActiva);
+        for (AiModelConfig.ModelSlot slot : config.getSlots()) {
+            slot.setSlotEnabled(iaActiva);
+        }
         aiModelConfigRepository.save(config);
         return toResponse(config, true);
     }
@@ -298,7 +321,11 @@ public class AiModelService {
                 .filter(s -> s.getSlotNumber() == 1)
                 .findFirst()
                 .orElse(null);
-        if (slot1 == null || !"ACTIVO".equalsIgnoreCase(slot1.getStatus())) return List.of();
+        if (slot1 == null
+                || !slot1.isSlotEnabled()
+                || !"ACTIVO".equalsIgnoreCase(slot1.getStatus())) {
+            return List.of();
+        }
 
         List<Producto> productos = productoRepository.findByIsDeletedFalse();
         if (productos.isEmpty()) return List.of();
@@ -459,6 +486,9 @@ public class AiModelService {
         if (cartProductIds == null || cartProductIds.isEmpty()) return List.of();
 
         AiModelConfig config = getOrCreateConfig();
+        if (!config.isIaActiva()) {
+            return List.of();
+        }
         AiModelConfig.ModelSlot slot2 = config.getSlots().stream()
                 .filter(s -> s.getSlotNumber() == 2)
                 .findFirst()

@@ -104,6 +104,9 @@ public class InventoryPredictionService {
     public Map<String, Object> ejecutarPrediccionInventario() {
         AiModelConfig config = aiModelConfigRepository.findById(CONFIG_ID)
                 .orElseThrow(() -> new IllegalStateException("No hay configuración de modelos IA."));
+        if (!config.isIaActiva()) {
+            throw new IllegalStateException("La IA general está desactivada.");
+        }
         AiModelConfig.ModelSlot slot3 = config.getSlots().stream()
                 .filter(s -> s.getSlotNumber() == 3)
                 .findFirst()
