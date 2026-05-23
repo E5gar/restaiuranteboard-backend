@@ -383,86 +383,38 @@ public class AiModelService {
             ContextoInteligenciaService.ContextoInteligencia ctx
     ) {
         try {
-            EncodersJson encoders = parseEncoders(slot1);
-            if (encoders == null || encoders.productIds().isEmpty()) {
-                return List.of();
-            }
-            Map<String, Integer> userMap = toIndexMap(encoders.userIds());
-            Map<String, Integer> productMap = toIndexMap(encoders.productIds());
-            Map<String, Integer> conditionMap = toIndexMap(encoders.conditions());
-            Map<String, Integer> segmentMap = toIndexMap(encoders.segments());
-            Map<String, Integer> dayMap = toIndexMap(encoders.days());
-            Map<String, Integer> actionMap = toIndexMap(encoders.actions());
-
             int n = productos.size();
             if (n == 0) return List.of();
 
-            String clima = normalizeToken(ctx.condition());
-            String segmento = normalizeToken(ctx.segment());
-            String dia = normalizeToken(ctx.day());
-            String ultimaAccion = interacciones.isEmpty() ? "VIEW_DETAIL" : normalizeToken(interacciones.get(0).getAction());
-            double dwellPromedio = interacciones.stream()
-                    .map(UserInteraction::getDwellTimeSeconds)
-                    .filter(Objects::nonNull)
-                    .mapToDouble(Integer::doubleValue)
-                    .average()
-                    .orElse(0d);
-            float tempNorm = normalizeTemp01(ctx.temp());
-            float dwellNorm = normalizeDwell01(dwellPromedio);
-
-            int userEnc = safeEncode(userMap, normalizeToken(userId), 0);
-            int conditionEnc = safeEncode(conditionMap, clima, 0);
-            int segmentEnc = safeEncode(segmentMap, segmento, 0);
-            int dayEnc = safeEncode(dayMap, dia, 0);
-            int actionEnc = safeEncode(actionMap, ultimaAccion, 0);
-
-            List<Object> userInput = new ArrayList<>(n);
-            List<Object> productInput = new ArrayList<>(n);
-            List<Object> conditionInput = new ArrayList<>(n);
-            List<Object> segmentInput = new ArrayList<>(n);
-            List<Object> dayInput = new ArrayList<>(n);
-            List<Object> actionInput = new ArrayList<>(n);
-            List<Object> tempInput = new ArrayList<>(n);
-            List<Object> dwellInput = new ArrayList<>(n);
-
-            for (int i = 0; i < n; i++) {
-                Producto p = productos.get(i);
-                userInput.add(userEnc);
-                productInput.add(safeEncode(productMap, normalizeToken(p.getId()), 0));
-                conditionInput.add(conditionEnc);
-                segmentInput.add(segmentEnc);
-                dayInput.add(dayEnc);
-                actionInput.add(actionEnc);
-                tempInput.add(tempNorm);
-                dwellInput.add(dwellNorm);
-            }
-
-            Map<String, List<Object>> inputs = new LinkedHashMap<>();
-            inputs.put("user_input", userInput);
-            inputs.put("product_input", productInput);
-            inputs.put("condition_input", conditionInput);
-            inputs.put("moment_input", segmentInput);
-            inputs.put("day_input", dayInput);
-            inputs.put("action_input", actionInput);
-            inputs.put("temp_input", tempInput);
-            inputs.put("dwell_input", dwellInput);
+            List<Map<String, Object>> catalog = productos.stream().map(p -> {
+                Map<String, Object> row = new LinkedHashMap<>();
+                row.put("id", p.getId());
+                row.put("name", p.getName());
+                row.put("category", p.getCategory());
+                row.put("price", p.getPrice() == null ? 0d : p.getPrice());
+                return row;
+            }).toList();
 
             HfPredictRequest payload = new HfPredictRequest(
-                    slot1.getModelFileBase64(),
-                    buildModelId(slot1),
-                    inputs
+                    slot1.getEncodersFileBase64(),
+                    userId,
+                    catalog
             );
+
             ResponseEntity<HfPredictResponse> response = hfRestTemplate.postForEntity(
                     getPredictUrl(),
                     payload,
                     HfPredictResponse.class
             );
+
             HfPredictResponse body = response.getBody();
             if (!response.getStatusCode().is2xxSuccessful() || body == null || body.scores() == null) {
                 return List.of();
             }
+
             List<Double> scores = body.scores();
             if (scores.size() < n) return List.of();
+
             Map<String, Double> puntaje = new HashMap<>();
             for (int i = 0; i < n; i++) {
                 Producto p = productos.get(i);
@@ -478,6 +430,7 @@ public class AiModelService {
                     .map(Producto::getId)
                     .collect(Collectors.toList());
         } catch (Exception e) {
+            log.error("[SLOT 1] Falló recomendación por HF: " + e.getMessage());
             return List.of();
         }
     }
@@ -629,12 +582,6 @@ public class AiModelService {
         return objectMapper.readValue(raw, new TypeReference<>() {});
     }
 
-    private EncodersJson parseEncoders(AiModelConfig.ModelSlot slot1) throws IOException {
-        byte[] payload = decodeBase64Payload(slot1.getEncodersFileBase64());
-        if (payload.length == 0) return null;
-        return objectMapper.readValue(payload, EncodersJson.class);
-    }
-
     private byte[] decodeBase64Payload(String value) {
         if (isBlank(value)) return new byte[0];
         String raw = value.trim();
@@ -643,46 +590,6 @@ public class AiModelService {
             raw = raw.substring(comma + 1);
         }
         return Base64.getDecoder().decode(raw);
-    }
-
-    private Map<String, Integer> toIndexMap(List<String> classes) {
-        Map<String, Integer> map = new HashMap<>();
-        if (classes == null) return map;
-        for (int i = 0; i < classes.size(); i++) {
-            String key = normalizeToken(classes.get(i));
-            if (!isBlank(key)) {
-                map.put(key, i);
-            }
-        }
-        return map;
-    }
-
-    private int safeEncode(Map<String, Integer> map, String value, int fallback) {
-        Integer idx = map.get(normalizeToken(value));
-        return idx == null ? fallback : idx;
-    }
-
-    private String normalizeToken(String v) {
-        return v == null ? "" : v.trim().toUpperCase(Locale.ROOT);
-    }
-
-    private float normalizeTemp01(Double temp) {
-        if (temp == null) return 0.5f;
-        double n = (temp - 0d) / 40d;
-        return (float) Math.max(0d, Math.min(1d, n));
-    }
-
-    private float normalizeDwell01(double dwell) {
-        double n = dwell / 300d;
-        return (float) Math.max(0d, Math.min(1d, n));
-    }
-
-    private String buildModelId(AiModelConfig.ModelSlot slot1) {
-        return String.join("|",
-                String.valueOf(slot1.getUploadedAt()),
-                String.valueOf(slot1.getModelFileName()),
-                String.valueOf(slot1.getEncodersFileName())
-        );
     }
 
     private RestTemplate createHfRestTemplate() {
@@ -869,9 +776,9 @@ public class AiModelService {
     }
 
     private record HfPredictRequest(
-            @JsonProperty("model_base64") String modelBase64,
-            @JsonProperty("model_id") String modelId,
-            @JsonProperty("inputs") Map<String, List<Object>> inputs
+            @JsonProperty("encoders_base64") String encodersBase64,
+            @JsonProperty("user_id") String userId,
+            @JsonProperty("catalog") List<Map<String, Object>> catalog
     ) {
     }
 
@@ -903,17 +810,6 @@ public class AiModelService {
             Double confidence,
             Double lift,
             Integer priority
-    ) {
-    }
-
-    @JsonIgnoreProperties(ignoreUnknown = true)
-    private record EncodersJson(
-            @JsonProperty("user_id") List<String> userIds,
-            @JsonProperty("product_id") List<String> productIds,
-            @JsonProperty("condition") List<String> conditions,
-            @JsonProperty("segment") List<String> segments,
-            @JsonProperty("day") List<String> days,
-            @JsonProperty("action") List<String> actions
     ) {
     }
 }
