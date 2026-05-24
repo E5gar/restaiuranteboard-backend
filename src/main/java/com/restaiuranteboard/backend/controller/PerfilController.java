@@ -8,6 +8,7 @@ import com.restaiuranteboard.backend.repository.sql.RestaurantOrderRepository;
 import com.restaiuranteboard.backend.repository.sql.UserRepository;
 import com.restaiuranteboard.backend.repository.sql.VerificationCodeRepository;
 import com.restaiuranteboard.backend.exception.EmailDispatchException;
+import com.restaiuranteboard.backend.service.CuentaEliminacionService;
 import com.restaiuranteboard.backend.service.EmailService;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
@@ -34,19 +35,22 @@ public class PerfilController {
     private final ConfiguracionSistemaRepository configuracionSistemaRepository;
     private final VerificationCodeRepository verificationCodeRepository;
     private final EmailService emailService;
+    private final CuentaEliminacionService cuentaEliminacionService;
 
     public PerfilController(
             UserRepository userRepository,
             RestaurantOrderRepository restaurantOrderRepository,
             ConfiguracionSistemaRepository configuracionSistemaRepository,
             VerificationCodeRepository verificationCodeRepository,
-            EmailService emailService
+            EmailService emailService,
+            CuentaEliminacionService cuentaEliminacionService
     ) {
         this.userRepository = userRepository;
         this.restaurantOrderRepository = restaurantOrderRepository;
         this.configuracionSistemaRepository = configuracionSistemaRepository;
         this.verificationCodeRepository = verificationCodeRepository;
         this.emailService = emailService;
+        this.cuentaEliminacionService = cuentaEliminacionService;
     }
 
     @GetMapping("/me")
@@ -148,6 +152,23 @@ public class PerfilController {
                 "message", "Código enviado al correo.",
                 "email", user.getEmail()
         ));
+    }
+
+    @PostMapping("/me/eliminar-cuenta")
+    public ResponseEntity<?> eliminarCuenta(@RequestBody Map<String, Object> body) {
+        User user = obtenerUsuarioAutenticado();
+        if (user == null) {
+            return ResponseEntity.status(HttpStatus.UNAUTHORIZED).body(Map.of("message", "No autorizado."));
+        }
+        String password = body.get("password") == null ? "" : String.valueOf(body.get("password"));
+        try {
+            cuentaEliminacionService.eliminarCuentaCliente(user, password);
+            return ResponseEntity.ok(Map.of("message", "Cuenta eliminada correctamente."));
+        } catch (IllegalStateException e) {
+            return ResponseEntity.status(HttpStatus.CONFLICT).body(Map.of("message", e.getMessage()));
+        } catch (IllegalArgumentException e) {
+            return ResponseEntity.badRequest().body(Map.of("message", e.getMessage()));
+        }
     }
 
     private Map<String, Object> buildPerfilResponse(User user) {

@@ -157,6 +157,81 @@ public class EmailService {
         );
     }
 
+    public void enviarConfirmacionTicketSoporte(
+            String destino,
+            String ticketCode,
+            String categoriaLabel,
+            String notifyUserId
+    ) {
+        ConfiguracionSistema cfg = requerirConfigCorreo();
+        String negocio = nombreNegocio(cfg);
+        String subject = "Recepcion de reporte - " + negocio;
+        String body = "Hola,\n\n"
+                + "Recibimos tu reporte de atencion al cliente.\n\n"
+                + "Ticket: " + ticketCode + "\n"
+                + "Tipo: " + categoriaLabel + "\n\n"
+                + "Nuestro equipo revisara tu caso y se pondra en contacto contigo a la brevedad.\n\n"
+                + "Gracias por escribirnos.\n"
+                + negocio;
+        dispatchSeguro(destino, cfg, subject, body, notifyUserId);
+    }
+
+    public void enviarCierreTicketSoporte(
+            String destino,
+            String ticketCode,
+            String veredicto,
+            String notifyUserId
+    ) {
+        ConfiguracionSistema cfg = requerirConfigCorreo();
+        String negocio = nombreNegocio(cfg);
+        String subject = "Ticket cerrado - " + negocio;
+        String body = "Hola,\n\n"
+                + "Tu ticket de atencion " + ticketCode + " fue cerrado.\n\n"
+                + "Resolucion:\n" + veredicto + "\n\n"
+                + negocio;
+        dispatchSeguro(destino, cfg, subject, body, notifyUserId);
+    }
+
+    private ConfiguracionSistema requerirConfigCorreo() {
+        ConfiguracionSistema cfg = configRepository.findById("GLOBAL_CONFIG").orElse(null);
+        if (cfg == null || cfg.getEmailSmtp() == null || cfg.getEmailSmtp().isBlank()
+                || cfg.getPasswordSmtp() == null || cfg.getPasswordSmtp().isBlank()) {
+            throw new IllegalStateException("SMTP no configurado.");
+        }
+        if (cfg.isSmtpCredentialsInvalid()) {
+            throw new IllegalStateException("Correo del sistema no disponible.");
+        }
+        return cfg;
+    }
+
+    private static String nombreNegocio(ConfiguracionSistema cfg) {
+        String n = cfg.getNombreNegocio();
+        return (n == null || n.isBlank()) ? "Restaiuranteboard" : n.trim();
+    }
+
+    private void dispatchSeguro(
+            String destino,
+            ConfiguracionSistema cfg,
+            String subject,
+            String body,
+            String notifyUserId
+    ) {
+        if (destino == null || destino.isBlank()) {
+            return;
+        }
+        if (usuarioRebotado(destino)) {
+            return;
+        }
+        githubEmailDispatchService.dispatchPlainEmail(
+                destino.trim(),
+                cfg.getEmailSmtp().trim(),
+                cfg.getPasswordSmtp(),
+                subject,
+                body,
+                notifyUserId
+        );
+    }
+
     private void assertSmtpConfigPermiteEnvio(TipoCodigoCorreo tipo) {
         if (tipo == TipoCodigoCorreo.SETUP_SMTP) {
             return;

@@ -211,7 +211,7 @@ public class ChatService {
                 + chatContextBuilderService.bloqueContexto(user, false)
                 + " Usa herramientas para carrito, catalogo y pedido. Max 10 unidades por producto. "
                 + "Si no puedes cumplir la solicitud responde exactamente: " + FALLBACK + ". "
-                + "Si reportan problema de entrega indica que pueden usar atencion al cliente.";
+                + "Si reportan problema con pedido, entrega o pago, responde con empatia breve y sugiere el formulario de atencion al cliente (no intentes resolver el reclamo en chat).";
     }
 
     private String promptAdmin(User user) {
@@ -223,7 +223,14 @@ public class ChatService {
 
     private boolean quiereAtencionCliente(String userMsg, String reply) {
         String u = userMsg.toLowerCase(Locale.ROOT);
-        return u.contains("problema") && (u.contains("entrega") || u.contains("pedido") || u.contains("reclamo"));
+        if (u.contains("reportar") && u.contains("problema")) {
+            return true;
+        }
+        if (u.contains("reclamo") || u.contains("queja")) {
+            return true;
+        }
+        return u.contains("problema")
+                && (u.contains("entrega") || u.contains("pedido") || u.contains("pago") || u.contains("repartidor"));
     }
 
     private ChatSession resolverSesion(User user, String chatType, String sessionId, boolean crearSiFalta) {

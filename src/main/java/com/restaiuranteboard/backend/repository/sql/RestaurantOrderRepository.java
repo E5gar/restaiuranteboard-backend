@@ -62,4 +62,10 @@ public interface RestaurantOrderRepository extends JpaRepository<RestaurantOrder
 
     @Query("SELECT MIN(o.createdAt) FROM RestaurantOrder o")
     Optional<LocalDateTime> findMinCreatedAt();
+
+    @Query("SELECT o FROM RestaurantOrder o WHERE o.client.id = :clientId AND o.createdAt >= :since ORDER BY o.createdAt DESC")
+    List<RestaurantOrder> findByClient_IdAndCreatedAtAfterOrderByCreatedAtDesc(
+            @Param("clientId") UUID clientId,
+            @Param("since") LocalDateTime since
+    );
 }
