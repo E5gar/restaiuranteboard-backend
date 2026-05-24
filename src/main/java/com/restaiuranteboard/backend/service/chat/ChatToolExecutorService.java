@@ -4,12 +4,11 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.restaiuranteboard.backend.dto.CarritoResponse;
 import com.restaiuranteboard.backend.dto.SeguimientoPedidoResponse;
-import com.restaiuranteboard.backend.model.nosql.ConfiguracionSistema;
+import com.restaiuranteboard.backend.exception.EmailDispatchException;
 import com.restaiuranteboard.backend.model.nosql.Producto;
 import com.restaiuranteboard.backend.model.sql.EmailComunicacionPersonal;
 import com.restaiuranteboard.backend.model.sql.Inventory;
 import com.restaiuranteboard.backend.model.sql.User;
-import com.restaiuranteboard.backend.repository.nosql.ConfiguracionSistemaRepository;
 import com.restaiuranteboard.backend.repository.nosql.ProductoRepository;
 import com.restaiuranteboard.backend.repository.sql.EmailComunicacionPersonalRepository;
 import com.restaiuranteboard.backend.repository.sql.InventoryRepository;
@@ -38,7 +37,6 @@ public class ChatToolExecutorService {
     private final AdminDashboardService adminDashboardService;
     private final InventoryRepository inventoryRepository;
     private final UserRepository userRepository;
-    private final ConfiguracionSistemaRepository configRepository;
     private final EmailComunicacionPersonalRepository emailComunicacionPersonalRepository;
     private final EmailService emailService;
     private final CartChatNotifyService cartChatNotifyService;
@@ -51,7 +49,6 @@ public class ChatToolExecutorService {
             AdminDashboardService adminDashboardService,
             InventoryRepository inventoryRepository,
             UserRepository userRepository,
-            ConfiguracionSistemaRepository configRepository,
             EmailComunicacionPersonalRepository emailComunicacionPersonalRepository,
             EmailService emailService,
             CartChatNotifyService cartChatNotifyService
@@ -63,7 +60,6 @@ public class ChatToolExecutorService {
         this.adminDashboardService = adminDashboardService;
         this.inventoryRepository = inventoryRepository;
         this.userRepository = userRepository;
-        this.configRepository = configRepository;
         this.emailComunicacionPersonalRepository = emailComunicacionPersonalRepository;
         this.emailService = emailService;
         this.cartChatNotifyService = cartChatNotifyService;
@@ -290,27 +286,29 @@ public class ChatToolExecutorService {
         if (dest == null || dest.getEmail() == null || dest.getEmail().isBlank()) {
             return "{\"ok\":false,\"error\":\"destinatario_no_encontrado\"}";
         }
-        ConfiguracionSistema cfg = configRepository.findById("GLOBAL_CONFIG").orElse(null);
-        if (cfg == null || cfg.getEmailSmtp() == null || cfg.getPasswordSmtp() == null || cfg.getPasswordSmtp().isBlank()) {
-            return "{\"ok\":false,\"error\":\"smtp_no_configurado\"}";
-        }
-        String negocio = cfg.getNombreNegocio() == null || cfg.getNombreNegocio().isBlank()
-                ? "Restaiuranteboard" : cfg.getNombreNegocio().trim();
-        String subject = "Mensaje de Administrador de " + negocio;
         EmailComunicacionPersonal row = new EmailComunicacionPersonal();
         row.setAdminEmail(admin.getEmail());
         row.setRecipientEmail(dest.getEmail());
         row.setContenido(mensaje);
         emailComunicacionPersonalRepository.save(row);
-        emailService.enviarCorreoTextoPlano(
-                dest.getEmail(),
-                subject,
-                mensaje,
-                cfg.getEmailSmtp(),
-                cfg.getPasswordSmtp(),
-                admin.getId() == null ? null : admin.getId().toString()
-        );
-        return json(Map.of("ok", true, "enviado_a", dest.getEmail()));
+        try {
+            emailService.enviarCorreoPersonalAdministrador(
+                    dest.getEmail(),
+                    mensaje,
+                    admin.getId() == null ? null : admin.getId().toString()
+            );
+        } catch (EmailDispatchException e) {
+            return json(Map.of(
+                    "ok", false,
+                    "error", "dispatch_fallido",
+                    "tracking_id", e.trackingId() == null ? "" : e.trackingId(),
+                    "stage", e.stage() == null ? "" : e.stage(),
+                    "detail", e.getMessage() == null ? "" : e.getMessage()
+            ));
+        } catch (IllegalStateException | IllegalArgumentException e) {
+            return json(Map.of("ok", false, "error", e.getMessage() == null ? "envio_fallido" : e.getMessage()));
+        }
+        return json(Map.of("ok", true, "enviado_a", dest.getEmail(), "encolado", true));
     }
 
     private String resolverProductoIdPorNombre(String nombre) {

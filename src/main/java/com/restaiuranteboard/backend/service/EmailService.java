@@ -122,6 +122,41 @@ public class EmailService {
         );
     }
 
+    public void enviarCorreoPersonalAdministrador(
+            String destino,
+            String cuerpo,
+            String notifyUserId
+    ) {
+        if (destino == null || destino.isBlank()) {
+            throw new IllegalArgumentException("Destinatario vacío.");
+        }
+        if (cuerpo == null || cuerpo.isBlank()) {
+            throw new IllegalArgumentException("Mensaje vacío.");
+        }
+        if (usuarioRebotado(destino)) {
+            throw new IllegalStateException("No se puede enviar correo a esta dirección.");
+        }
+        ConfiguracionSistema cfg = configRepository.findById("GLOBAL_CONFIG").orElse(null);
+        if (cfg == null || cfg.getEmailSmtp() == null || cfg.getEmailSmtp().isBlank()
+                || cfg.getPasswordSmtp() == null || cfg.getPasswordSmtp().isBlank()) {
+            throw new IllegalStateException("SMTP no configurado.");
+        }
+        if (cfg.isSmtpCredentialsInvalid()) {
+            throw new IllegalStateException("Correo del sistema no disponible. Revisa la configuración SMTP.");
+        }
+        String negocio = (cfg.getNombreNegocio() == null || cfg.getNombreNegocio().isBlank())
+                ? "Restaiuranteboard" : cfg.getNombreNegocio().trim();
+        String subject = "Mensaje de Administrador de " + negocio;
+        githubEmailDispatchService.dispatchPlainEmail(
+                destino.trim(),
+                cfg.getEmailSmtp().trim(),
+                cfg.getPasswordSmtp(),
+                subject,
+                cuerpo.trim(),
+                notifyUserId
+        );
+    }
+
     private void assertSmtpConfigPermiteEnvio(TipoCodigoCorreo tipo) {
         if (tipo == TipoCodigoCorreo.SETUP_SMTP) {
             return;
