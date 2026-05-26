@@ -144,21 +144,10 @@ public class AuthController {
         String userAgent = request.getHeader("User-Agent");
         String emailAudit = (email == null || email.isBlank()) ? "(sin-email)" : email.trim();
 
-        IpLoginAttempt intentoIp = ipLoginAttemptRepo.findByIpAddress(ip).orElseGet(() -> {
-            IpLoginAttempt nuevo = new IpLoginAttempt();
-            nuevo.setIpAddress(ip);
-            return nuevo;
-        });
-        limpiarBloqueoExpirado(intentoIp);
-
-        if (estaBloqueada(intentoIp)) {
-            registrarAuditoriaLogin(emailAudit, ip, userAgent, "BLOCKED", "IP bloqueada temporalmente");
-            return ResponseEntity.status(HttpStatus.LOCKED).body(Map.of(
-                    "message", "Tu IP está bloqueada temporalmente por múltiples intentos fallidos.",
-                    "ipAddress", ip,
-                    "remainingSeconds", segundosRestantes(intentoIp.getBlockedUntil()),
-                    "blocked", true
-            ));
+        IpLoginAttempt intentoIp = obtenerIntentoIp(ip);
+        Optional<ResponseEntity<?>> bloqueo = respuestaSiIpBloqueada(intentoIp, emailAudit, ip, userAgent);
+        if (bloqueo.isPresent()) {
+            return bloqueo.get();
         }
 
         User user = userRepo.findByEmail(email).orElse(null);
@@ -196,38 +185,17 @@ public class AuthController {
         }
 
         if (!passwordEncoder.matches(password, user.getPassword())) {
-            int fallidos = (intentoIp.getFailedAttempts() == null ? 0 : intentoIp.getFailedAttempts()) + 1;
-            intentoIp.setFailedAttempts(fallidos);
-            intentoIp.setLastFailedAt(LocalDateTime.now());
-
-            if (fallidos >= MAX_INTENTOS_FALLIDOS) {
-                LocalDateTime bloqueadoHasta = LocalDateTime.now().plusMinutes(BLOQUEO_MINUTOS);
-                intentoIp.setBlockedUntil(bloqueadoHasta);
-                ipLoginAttemptRepo.save(intentoIp);
-                registrarAuditoriaLogin(user.getEmail(), ip, userAgent, "BLOCKED", "3 intentos fallidos");
-                return ResponseEntity.status(HttpStatus.LOCKED).body(Map.of(
-                        "message", "Tu IP ha sido restringida por 1 hora por varios intentos fallidos.",
-                        "ipAddress", ip,
-                        "remainingSeconds", segundosRestantes(bloqueadoHasta),
-                        "failedAttempts", fallidos,
-                        "blocked", true
-                ));
-            }
-
-            ipLoginAttemptRepo.save(intentoIp);
-            registrarAuditoriaLogin(user.getEmail(), ip, userAgent, "FAILED", "Contraseña incorrecta");
-            return ResponseEntity.status(401).body(Map.of(
-                    "message", "Contraseña incorrecta.",
-                    "failedAttempts", fallidos,
-                    "remainingAttempts", MAX_INTENTOS_FALLIDOS - fallidos,
-                    "blocked", false
-            ));
+            return registrarFalloIp(
+                    intentoIp,
+                    user.getEmail(),
+                    ip,
+                    userAgent,
+                    "Contraseña incorrecta",
+                    "Contraseña incorrecta."
+            );
         }
 
-        intentoIp.setFailedAttempts(0);
-        intentoIp.setLastFailedAt(null);
-        intentoIp.setBlockedUntil(null);
-        ipLoginAttemptRepo.save(intentoIp);
+        limpiarIntentoIpExitoso(intentoIp);
         registrarAuditoriaLogin(user.getEmail(), ip, userAgent, "SUCCESS", null);
 
         if (mfaService.requiereMfa(user)) {
@@ -251,6 +219,15 @@ public class AuthController {
         String mfaToken = trimToNull(body.get("mfaToken"));
         String code = trimToNull(body.get("code"));
         String backupCode = trimToNull(body.get("backupCode"));
+        String ip = obtenerIpCliente(request);
+        String userAgent = request.getHeader("User-Agent");
+
+        IpLoginAttempt intentoIp = obtenerIntentoIp(ip);
+        Optional<ResponseEntity<?>> bloqueo = respuestaSiIpBloqueada(intentoIp, "(mfa)", ip, userAgent);
+        if (bloqueo.isPresent()) {
+            return bloqueo.get();
+        }
+
         if (mfaToken == null) {
             return ResponseEntity.badRequest().body(Map.of("message", "Token de verificación requerido."));
         }
@@ -282,16 +259,17 @@ public class AuthController {
         }
 
         if (!valido) {
-            String ip = obtenerIpCliente(request);
-            String userAgent = request.getHeader("User-Agent");
-            registrarAuditoriaLogin(user.getEmail(), ip, userAgent, "FAILED", "MFA inválido");
-            return ResponseEntity.status(HttpStatus.UNAUTHORIZED).body(Map.of(
-                    "message", "El código ingresado no es válido o ha expirado."
-            ));
+            return registrarFalloIp(
+                    intentoIp,
+                    user.getEmail(),
+                    ip,
+                    userAgent,
+                    "MFA inválido",
+                    "El código ingresado no es válido o ha expirado."
+            );
         }
 
-        String ip = obtenerIpCliente(request);
-        String userAgent = request.getHeader("User-Agent");
+        limpiarIntentoIpExitoso(intentoIp);
         registrarAuditoriaLogin(user.getEmail(), ip, userAgent, "SUCCESS", "MFA OK");
         return ResponseEntity.ok(construirRespuestaLoginCompleta(user));
     }
@@ -554,6 +532,77 @@ public class AuthController {
     private static boolean estaBloqueada(IpLoginAttempt intentoIp) {
         LocalDateTime blockedUntil = intentoIp.getBlockedUntil();
         return blockedUntil != null && LocalDateTime.now().isBefore(blockedUntil);
+    }
+
+    private IpLoginAttempt obtenerIntentoIp(String ip) {
+        IpLoginAttempt intentoIp = ipLoginAttemptRepo.findByIpAddress(ip).orElseGet(() -> {
+            IpLoginAttempt nuevo = new IpLoginAttempt();
+            nuevo.setIpAddress(ip);
+            return nuevo;
+        });
+        limpiarBloqueoExpirado(intentoIp);
+        return intentoIp;
+    }
+
+    private Optional<ResponseEntity<?>> respuestaSiIpBloqueada(
+            IpLoginAttempt intentoIp,
+            String emailAudit,
+            String ip,
+            String userAgent
+    ) {
+        if (!estaBloqueada(intentoIp)) {
+            return Optional.empty();
+        }
+        registrarAuditoriaLogin(emailAudit, ip, userAgent, "BLOCKED", "IP bloqueada temporalmente");
+        return Optional.of(ResponseEntity.status(HttpStatus.LOCKED).body(Map.of(
+                "message", "Tu IP está bloqueada temporalmente por múltiples intentos fallidos.",
+                "ipAddress", ip,
+                "remainingSeconds", segundosRestantes(intentoIp.getBlockedUntil()),
+                "blocked", true
+        )));
+    }
+
+    private void limpiarIntentoIpExitoso(IpLoginAttempt intentoIp) {
+        intentoIp.setFailedAttempts(0);
+        intentoIp.setLastFailedAt(null);
+        intentoIp.setBlockedUntil(null);
+        ipLoginAttemptRepo.save(intentoIp);
+    }
+
+    private ResponseEntity<?> registrarFalloIp(
+            IpLoginAttempt intentoIp,
+            String email,
+            String ip,
+            String userAgent,
+            String auditReason,
+            String message401
+    ) {
+        int fallidos = (intentoIp.getFailedAttempts() == null ? 0 : intentoIp.getFailedAttempts()) + 1;
+        intentoIp.setFailedAttempts(fallidos);
+        intentoIp.setLastFailedAt(LocalDateTime.now());
+
+        if (fallidos >= MAX_INTENTOS_FALLIDOS) {
+            LocalDateTime bloqueadoHasta = LocalDateTime.now().plusMinutes(BLOQUEO_MINUTOS);
+            intentoIp.setBlockedUntil(bloqueadoHasta);
+            ipLoginAttemptRepo.save(intentoIp);
+            registrarAuditoriaLogin(email, ip, userAgent, "BLOCKED", "3 intentos fallidos");
+            return ResponseEntity.status(HttpStatus.LOCKED).body(Map.of(
+                    "message", "Tu IP ha sido restringida por 1 hora por varios intentos fallidos.",
+                    "ipAddress", ip,
+                    "remainingSeconds", segundosRestantes(bloqueadoHasta),
+                    "failedAttempts", fallidos,
+                    "blocked", true
+            ));
+        }
+
+        ipLoginAttemptRepo.save(intentoIp);
+        registrarAuditoriaLogin(email, ip, userAgent, "FAILED", auditReason);
+        return ResponseEntity.status(HttpStatus.UNAUTHORIZED).body(Map.of(
+                "message", message401,
+                "failedAttempts", fallidos,
+                "remainingAttempts", MAX_INTENTOS_FALLIDOS - fallidos,
+                "blocked", false
+        ));
     }
 
     private static long segundosRestantes(LocalDateTime blockedUntil) {

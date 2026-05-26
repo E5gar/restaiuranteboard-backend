@@ -32,7 +32,11 @@ public class TotpMfaService {
     }
 
     public String buildOtpAuthUri(String email, String secret) {
-        return GoogleAuthenticatorQRGenerator.getOtpAuthURL(issuer, email, new GoogleAuthenticatorKey.Builder(secret).build());
+        return String.format("otpauth://totp/%s:%s?secret=%s&issuer=%s", 
+                issuer, 
+                email, 
+                secret, 
+                issuer);
     }
 
     public boolean verifyCode(String secret, String code) {

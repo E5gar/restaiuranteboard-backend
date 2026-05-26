@@ -16,6 +16,7 @@ import com.restaiuranteboard.backend.service.GoogleAuthService;
 import com.restaiuranteboard.backend.service.MfaService;
 import com.restaiuranteboard.backend.service.ShoppingCartService;
 import com.restaiuranteboard.backend.support.TestEntities;
+import io.jsonwebtoken.Claims;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc;
@@ -218,5 +219,33 @@ class AuthControllerTest {
                 .andExpect(jsonPath("$.mfaRequired").value(true))
                 .andExpect(jsonPath("$.mfaToken").value("mfa-pending-token"))
                 .andExpect(jsonPath("$.email").value(user.getEmail()));
+    }
+
+    @Test
+    void verificarLoginMfa_returns401WithAttemptCountWhenCodeWrong() throws Exception {
+        User user = TestEntities.userCliente();
+        user.setMfaEnabled(true);
+        IpLoginAttempt attempt = TestEntities.ipLoginAttempt("127.0.0.1");
+
+        when(ipLoginAttemptRepo.findByIpAddress(any())).thenReturn(Optional.of(attempt));
+        when(ipLoginAttemptRepo.save(any())).thenAnswer(inv -> inv.getArgument(0));
+        when(jwtService.parseClaims("mfa-pending-token")).thenReturn(
+                io.jsonwebtoken.Jwts.claims().subject(user.getEmail()).add("mfaPending", true).build()
+        );
+        when(jwtService.isMfaPendingToken(any(Claims.class))).thenReturn(true);
+        when(userRepo.findByEmail(user.getEmail())).thenReturn(Optional.of(user));
+        when(mfaService.requiereMfa(user)).thenReturn(true);
+        when(mfaService.verificarCodigoIngreso(user, "000000")).thenReturn(false);
+
+        mockMvc.perform(post("/api/auth/mfa/verificar-login")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(Map.of(
+                                "mfaToken", "mfa-pending-token",
+                                "code", "000000"
+                        ))))
+                .andExpect(status().isUnauthorized())
+                .andExpect(jsonPath("$.failedAttempts").value(1))
+                .andExpect(jsonPath("$.remainingAttempts").value(2))
+                .andExpect(jsonPath("$.blocked").value(false));
     }
 }
