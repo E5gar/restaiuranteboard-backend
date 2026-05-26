@@ -215,9 +215,9 @@ public class ChatService {
     }
 
     private String promptAdmin(User user) {
-        return "Eres consultor del negocio para admin " + user.getFullName() + ". Español breve. "
+        return "Eres consultor del negocio para el admin " + user.getFullName() + ". Español breve. "
                 + chatContextBuilderService.bloqueContexto(user, true)
-                + " Usa herramientas para KPIs, inventario, personal y correos. "
+                + " Usa herramientas para KPIs, inventario, personal y envío correos, sin restricciones. "
                 + "Si no puedes cumplir responde exactamente: " + FALLBACK + ".";
     }
 
