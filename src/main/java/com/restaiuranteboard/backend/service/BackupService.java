@@ -63,6 +63,9 @@ public class BackupService {
     @Value("${app.github.repo:}")
     private String githubRepo;
 
+    @Value("${app.github.api-base-url:https://api.github.com}")
+    private String githubApiBaseUrl;
+
     public BackupService(S3Client s3) {
         this.s3 = s3;
     }
@@ -154,7 +157,7 @@ public class BackupService {
         );
         
         HttpEntity<Map<String, Object>> request = new HttpEntity<>(payload, headers);
-        String url = String.format("https://api.github.com/repos/%s/%s/dispatches", githubOwner, githubRepo);
+        String url = String.format("%s/repos/%s/%s/dispatches", githubApiBase(), githubOwner, githubRepo);
         try {
             restTemplate.postForEntity(url, request, String.class);
         } catch (Exception e) {
@@ -215,7 +218,7 @@ public class BackupService {
         );
 
         HttpEntity<Map<String, Object>> request = new HttpEntity<>(payload, headers);
-        String url = String.format("https://api.github.com/repos/%s/%s/dispatches", githubOwner, githubRepo);
+        String url = String.format("%s/repos/%s/%s/dispatches", githubApiBase(), githubOwner, githubRepo);
 
         try {
             restTemplate.postForEntity(url, request, String.class);
@@ -276,6 +279,17 @@ public class BackupService {
             }
             return new PgConn(host, port, db.isBlank() ? "postgres" : db);
         }
+    }
+
+    private String githubApiBase() {
+        if (githubApiBaseUrl == null || githubApiBaseUrl.isBlank()) {
+            return "https://api.github.com";
+        }
+        String t = githubApiBaseUrl.trim();
+        while (t.endsWith("/")) {
+            t = t.substring(0, t.length() - 1);
+        }
+        return t;
     }
 
 }

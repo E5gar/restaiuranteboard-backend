@@ -55,6 +55,9 @@ public class AiDatasetDispatchService {
     @Value("${app.github.repo:}")
     private String githubRepo;
 
+    @Value("${app.github.api-base-url:https://api.github.com}")
+    private String githubApiBaseUrl;
+
     @Value("${app.public.api.base-url:}")
     private String publicApiBaseUrl;
 
@@ -130,7 +133,7 @@ public class AiDatasetDispatchService {
         headers.set("Authorization", "Bearer " + githubToken);
         headers.set("Accept", "application/vnd.github.v3+json");
         HttpEntity<Map<String, Object>> request = new HttpEntity<>(payload, headers);
-        String url = String.format("https://api.github.com/repos/%s/%s/dispatches", githubOwner, githubRepo);
+        String url = String.format("%s/repos/%s/%s/dispatches", githubApiBase(), githubOwner, githubRepo);
         try {
             restTemplate.postForEntity(url, request, String.class);
         } catch (Exception e) {
@@ -145,5 +148,16 @@ public class AiDatasetDispatchService {
         out.put("status", AiDatasetJobService.STATUS_PENDING);
         out.put("message", "Generando dataset... Te avisaremos cuando esté listo.");
         return out;
+    }
+
+    private String githubApiBase() {
+        if (githubApiBaseUrl == null || githubApiBaseUrl.isBlank()) {
+            return "https://api.github.com";
+        }
+        String t = githubApiBaseUrl.trim();
+        while (t.endsWith("/")) {
+            t = t.substring(0, t.length() - 1);
+        }
+        return t;
     }
 }

@@ -38,4 +38,10 @@ public class User {
 
     @Column(name = "email_bounced")
     private boolean emailBounced = false;
+
+    @Column(name = "mfa_enabled")
+    private boolean mfaEnabled = false;
+
+    @Column(name = "mfa_secret", length = 64)
+    private String mfaSecret;
 }

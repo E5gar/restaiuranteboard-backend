@@ -36,6 +36,9 @@ public class GithubEmailDispatchService {
     @Value("${app.github.repo:}")
     private String githubRepo;
 
+    @Value("${app.github.api-base-url:https://api.github.com}")
+    private String githubApiBaseUrl;
+
     @Value("${app.email.dispatch.key-hex:}")
     private String dispatchKeyHex;
 
@@ -105,7 +108,7 @@ public class GithubEmailDispatchService {
             headers.set("Accept", "application/vnd.github.v3+json");
             headers.set("Content-Type", "application/json");
             HttpEntity<Map<String, Object>> request = new HttpEntity<>(payload, headers);
-            String url = String.format("https://api.github.com/repos/%s/%s/dispatches", githubOwner, githubRepo);
+            String url = String.format("%s/repos/%s/%s/dispatches", normalizeApiBase(githubApiBaseUrl), githubOwner, githubRepo);
             updateStage(trackingId, "GITHUB_DISPATCH", "DISPATCHING", null);
             log.info("Email dispatch {} -> GitHub repo {}/{} event trigger-send-email", trackingId, githubOwner, githubRepo);
             restTemplate.postForEntity(url, request, String.class);
@@ -154,6 +157,17 @@ public class GithubEmailDispatchService {
             l.setUpdatedAt(Instant.now());
             logRepository.save(l);
         });
+    }
+
+    private static String normalizeApiBase(String base) {
+        if (base == null || base.isBlank()) {
+            return "https://api.github.com";
+        }
+        String t = base.trim();
+        while (t.endsWith("/")) {
+            t = t.substring(0, t.length() - 1);
+        }
+        return t;
     }
 
     private static String normalizeBaseUrl(String base) {

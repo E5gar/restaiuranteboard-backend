@@ -55,6 +55,9 @@ public class DashboardReportDispatchService {
     @Value("${app.github.repo:}")
     private String githubRepo;
 
+    @Value("${app.github.api-base-url:https://api.github.com}")
+    private String githubApiBaseUrl;
+
     @Value("${app.public.api.base-url:}")
     private String publicApiBaseUrl;
 
@@ -145,7 +148,7 @@ public class DashboardReportDispatchService {
         headers.set("Authorization", "Bearer " + githubToken);
         headers.set("Accept", "application/vnd.github.v3+json");
         HttpEntity<Map<String, Object>> httpRequest = new HttpEntity<>(payload, headers);
-        String url = String.format("https://api.github.com/repos/%s/%s/dispatches", githubOwner, githubRepo);
+        String url = String.format("%s/repos/%s/%s/dispatches", githubApiBase(), githubOwner, githubRepo);
         try {
             restTemplate.postForEntity(url, httpRequest, String.class);
         } catch (Exception e) {
@@ -191,5 +194,16 @@ public class DashboardReportDispatchService {
             role = user.getRole().getName().trim().toUpperCase(Locale.ROOT);
         }
         return name + " - " + role;
+    }
+
+    private String githubApiBase() {
+        if (githubApiBaseUrl == null || githubApiBaseUrl.isBlank()) {
+            return "https://api.github.com";
+        }
+        String t = githubApiBaseUrl.trim();
+        while (t.endsWith("/")) {
+            t = t.substring(0, t.length() - 1);
+        }
+        return t;
     }
 }
