@@ -12,6 +12,7 @@ import com.restaiuranteboard.backend.repository.sql.UserRepository;
 import com.restaiuranteboard.backend.repository.sql.VerificationCodeRepository;
 import com.restaiuranteboard.backend.security.JwtService;
 import com.restaiuranteboard.backend.service.EmailService;
+import com.restaiuranteboard.backend.service.MfaService;
 import com.restaiuranteboard.backend.service.ShoppingCartService;
 import com.restaiuranteboard.backend.support.TestEntities;
 import org.junit.jupiter.api.Test;
@@ -77,6 +78,9 @@ class AuthControllerTest {
 
     @MockitoBean
     private JwtService jwtService;
+
+    @MockitoBean
+    private MfaService mfaService;
 
     @Test
     void checkAdmin_returnsHasAdminFalseWhenNoUsers() throws Exception {
@@ -167,6 +171,7 @@ class AuthControllerTest {
         when(ipLoginAttemptRepo.save(any())).thenAnswer(inv -> inv.getArgument(0));
         when(userRepo.findByEmail(user.getEmail())).thenReturn(Optional.of(user));
         when(passwordEncoder.matches("Secret1@", user.getPassword())).thenReturn(true);
+        when(mfaService.requiereMfa(user)).thenReturn(false);
         when(jwtService.generateToken(eq(user.getEmail()), eq(user.getId().toString()), eq("CLIENTE")))
                 .thenReturn("jwt-token");
         when(shoppingCartService.loadSanitizeAndEnrich(user.getId().toString()))
@@ -182,5 +187,32 @@ class AuthControllerTest {
                 .andExpect(jsonPath("$.token").value("jwt-token"))
                 .andExpect(jsonPath("$.email").value(user.getEmail()))
                 .andExpect(jsonPath("$.role").value("CLIENTE"));
+    }
+
+    @Test
+    void login_returnsMfaRequiredWhenMfaEnabled() throws Exception {
+        User user = TestEntities.userCliente();
+        user.setFirstLogin(false);
+        user.setMfaEnabled(true);
+        IpLoginAttempt attempt = TestEntities.ipLoginAttempt("127.0.0.1");
+
+        when(ipLoginAttemptRepo.findByIpAddress(any())).thenReturn(Optional.of(attempt));
+        when(ipLoginAttemptRepo.save(any())).thenAnswer(inv -> inv.getArgument(0));
+        when(userRepo.findByEmail(user.getEmail())).thenReturn(Optional.of(user));
+        when(passwordEncoder.matches("Secret1@", user.getPassword())).thenReturn(true);
+        when(mfaService.requiereMfa(user)).thenReturn(true);
+        when(jwtService.generateMfaPendingToken(eq(user.getEmail()), eq(user.getId().toString()), eq("CLIENTE")))
+                .thenReturn("mfa-pending-token");
+
+        mockMvc.perform(post("/api/auth/login")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(Map.of(
+                                "email", user.getEmail(),
+                                "password", "Secret1@"
+                        ))))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.mfaRequired").value(true))
+                .andExpect(jsonPath("$.mfaToken").value("mfa-pending-token"))
+                .andExpect(jsonPath("$.email").value(user.getEmail()));
     }
 }

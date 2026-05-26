@@ -16,13 +16,16 @@ public class JwtService {
 
     private final SecretKey key;
     private final long expirationMs;
+    private final long mfaPendingExpirationMs;
 
     public JwtService(
             @Value("${jwt.secret}") String secret,
-            @Value("${jwt.expiration-ms}") long expirationMs
+            @Value("${jwt.expiration-ms}") long expirationMs,
+            @Value("${jwt.mfa-pending-expiration-ms:300000}") long mfaPendingExpirationMs
     ) {
         this.key = Keys.hmacShaKeyFor(secret.getBytes(StandardCharsets.UTF_8));
         this.expirationMs = expirationMs;
+        this.mfaPendingExpirationMs = mfaPendingExpirationMs;
     }
 
     public String generateToken(String email, String userId, String role) {
@@ -38,6 +41,27 @@ public class JwtService {
                 ))
                 .signWith(key)
                 .compact();
+    }
+
+    public String generateMfaPendingToken(String email, String userId, String role) {
+        Date now = new Date();
+        Date exp = new Date(now.getTime() + mfaPendingExpirationMs);
+        return Jwts.builder()
+                .subject(email)
+                .issuedAt(now)
+                .expiration(exp)
+                .claims(Map.of(
+                        "userId", userId,
+                        "role", role,
+                        "mfaPending", true
+                ))
+                .signWith(key)
+                .compact();
+    }
+
+    public boolean isMfaPendingToken(Claims claims) {
+        Object flag = claims.get("mfaPending");
+        return Boolean.TRUE.equals(flag);
     }
 
     public Claims parseClaims(String token) {

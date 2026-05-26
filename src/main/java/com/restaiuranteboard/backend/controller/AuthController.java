@@ -7,7 +7,9 @@ import com.restaiuranteboard.backend.security.JwtService;
 import com.restaiuranteboard.backend.model.nosql.ConfiguracionSistema;
 import com.restaiuranteboard.backend.repository.nosql.ConfiguracionSistemaRepository;
 import com.restaiuranteboard.backend.exception.EmailDispatchException;
+import com.restaiuranteboard.backend.service.MfaService;
 import com.restaiuranteboard.backend.service.ShoppingCartService;
+import io.jsonwebtoken.Claims;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
@@ -34,6 +36,7 @@ public class AuthController {
     @Autowired private PasswordEncoder passwordEncoder;
     @Autowired private ShoppingCartService shoppingCartService;
     @Autowired private JwtService jwtService;
+    @Autowired private MfaService mfaService;
 
     private static final int MAX_INTENTOS_FALLIDOS = 3;
     private static final long BLOQUEO_MINUTOS = 60;
@@ -217,6 +220,73 @@ public class AuthController {
         ipLoginAttemptRepo.save(intentoIp);
         registrarAuditoriaLogin(user.getEmail(), ip, userAgent, "SUCCESS", null);
 
+        if (mfaService.requiereMfa(user)) {
+            String mfaToken = jwtService.generateMfaPendingToken(
+                    user.getEmail(),
+                    user.getId().toString(),
+                    user.getRole().getName()
+            );
+            return ResponseEntity.ok(Map.of(
+                    "mfaRequired", true,
+                    "mfaToken", mfaToken,
+                    "email", user.getEmail()
+            ));
+        }
+
+        return ResponseEntity.ok(construirRespuestaLoginCompleta(user));
+    }
+
+    @PostMapping("/mfa/verificar-login")
+    public ResponseEntity<?> verificarLoginMfa(@RequestBody Map<String, String> body, HttpServletRequest request) {
+        String mfaToken = trimToNull(body.get("mfaToken"));
+        String code = trimToNull(body.get("code"));
+        String backupCode = trimToNull(body.get("backupCode"));
+        if (mfaToken == null) {
+            return ResponseEntity.badRequest().body(Map.of("message", "Token de verificación requerido."));
+        }
+        if ((code == null || code.isBlank()) && (backupCode == null || backupCode.isBlank())) {
+            return ResponseEntity.badRequest().body(Map.of("message", "Ingresa el código de 6 dígitos o un código de respaldo."));
+        }
+
+        Claims claims;
+        try {
+            claims = jwtService.parseClaims(mfaToken);
+        } catch (Exception e) {
+            return ResponseEntity.status(HttpStatus.UNAUTHORIZED).body(Map.of("message", "La sesión de verificación expiró. Inicia sesión nuevamente."));
+        }
+        if (!jwtService.isMfaPendingToken(claims)) {
+            return ResponseEntity.status(HttpStatus.UNAUTHORIZED).body(Map.of("message", "Token de verificación inválido."));
+        }
+
+        String email = claims.getSubject();
+        User user = userRepo.findByEmail(email).orElse(null);
+        if (user == null || user.isDeleted() || !mfaService.requiereMfa(user)) {
+            return ResponseEntity.status(HttpStatus.UNAUTHORIZED).body(Map.of("message", "Usuario no válido para verificación MFA."));
+        }
+
+        boolean valido = false;
+        if (code != null && !code.isBlank()) {
+            valido = mfaService.verificarCodigoIngreso(user, code);
+        } else if (backupCode != null) {
+            valido = mfaService.verificarCodigoRespaldo(user, backupCode);
+        }
+
+        if (!valido) {
+            String ip = obtenerIpCliente(request);
+            String userAgent = request.getHeader("User-Agent");
+            registrarAuditoriaLogin(user.getEmail(), ip, userAgent, "FAILED", "MFA inválido");
+            return ResponseEntity.status(HttpStatus.UNAUTHORIZED).body(Map.of(
+                    "message", "El código ingresado no es válido o ha expirado."
+            ));
+        }
+
+        String ip = obtenerIpCliente(request);
+        String userAgent = request.getHeader("User-Agent");
+        registrarAuditoriaLogin(user.getEmail(), ip, userAgent, "SUCCESS", "MFA OK");
+        return ResponseEntity.ok(construirRespuestaLoginCompleta(user));
+    }
+
+    private Map<String, Object> construirRespuestaLoginCompleta(User user) {
         String token = jwtService.generateToken(
                 user.getEmail(),
                 user.getId().toString(),
@@ -230,10 +300,11 @@ public class AuthController {
         body.put("firstLogin", false);
         body.put("darkMode", user.isDarkMode());
         body.put("userId", user.getId().toString());
+        body.put("mfaRequired", false);
         ShoppingCartService.LoginCartPayload payload = shoppingCartService.loadSanitizeAndEnrich(user.getId().toString());
         body.put("cart", payload.cart());
         body.put("removedItems", payload.removedItems());
-        return ResponseEntity.ok(body);
+        return body;
     }
 
     @PatchMapping("/dark-mode")

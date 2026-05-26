@@ -182,6 +182,7 @@ public class PerfilController {
         out.put("email", user.getEmail());
         out.put("role", user.getRole() == null ? null : user.getRole().getName());
         out.put("canEditAddress", canEditAddress);
+        out.put("mfaEnabled", user.isMfaEnabled());
         return out;
     }
 
