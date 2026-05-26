@@ -12,6 +12,7 @@ import com.restaiuranteboard.backend.repository.sql.UserRepository;
 import com.restaiuranteboard.backend.repository.sql.VerificationCodeRepository;
 import com.restaiuranteboard.backend.security.JwtService;
 import com.restaiuranteboard.backend.service.EmailService;
+import com.restaiuranteboard.backend.service.GoogleAuthService;
 import com.restaiuranteboard.backend.service.MfaService;
 import com.restaiuranteboard.backend.service.ShoppingCartService;
 import com.restaiuranteboard.backend.support.TestEntities;
@@ -81,6 +82,9 @@ class AuthControllerTest {
 
     @MockitoBean
     private MfaService mfaService;
+
+    @MockitoBean
+    private GoogleAuthService googleAuthService;
 
     @Test
     void checkAdmin_returnsHasAdminFalseWhenNoUsers() throws Exception {

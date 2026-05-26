@@ -290,7 +290,7 @@ public class ChatService {
     }
 
     private int avanzarContador(ChatSession session) {
-        int next = session.getKeyCounter() >= 5 ? 1 : session.getKeyCounter() + 1;
+        int next = session.getKeyCounter() >= 10 ? 1 : session.getKeyCounter() + 1;
         session.setKeyCounter(next);
         return next;
     }

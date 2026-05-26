@@ -17,7 +17,7 @@ public class TotpMfaService {
     private final GoogleAuthenticator googleAuthenticator;
     private final String issuer;
 
-    public TotpMfaService(@Value("${app.mfa.issuer:Restaiuranteboard}") String issuer) {
+    public TotpMfaService(@Value("${app.mfa.issuer}") String issuer) {
         this.issuer = issuer;
         GoogleAuthenticatorConfig config = new GoogleAuthenticatorConfig.GoogleAuthenticatorConfigBuilder()
                 .setTimeStepSizeInMillis(TimeUnit.SECONDS.toMillis(30))

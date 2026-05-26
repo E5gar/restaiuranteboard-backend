@@ -7,6 +7,7 @@ import com.restaiuranteboard.backend.security.JwtService;
 import com.restaiuranteboard.backend.model.nosql.ConfiguracionSistema;
 import com.restaiuranteboard.backend.repository.nosql.ConfiguracionSistemaRepository;
 import com.restaiuranteboard.backend.exception.EmailDispatchException;
+import com.restaiuranteboard.backend.service.GoogleAuthService;
 import com.restaiuranteboard.backend.service.MfaService;
 import com.restaiuranteboard.backend.service.ShoppingCartService;
 import io.jsonwebtoken.Claims;
@@ -37,6 +38,7 @@ public class AuthController {
     @Autowired private ShoppingCartService shoppingCartService;
     @Autowired private JwtService jwtService;
     @Autowired private MfaService mfaService;
+    @Autowired private GoogleAuthService googleAuthService;
 
     private static final int MAX_INTENTOS_FALLIDOS = 3;
     private static final long BLOQUEO_MINUTOS = 60;
@@ -183,6 +185,14 @@ public class AuthController {
             bodyFirst.put("cart", firstCart.cart());
             bodyFirst.put("removedItems", firstCart.removedItems());
             return ResponseEntity.ok(bodyFirst);
+        }
+
+        if (GoogleAuthService.esSoloGoogle(user)) {
+            registrarAuditoriaLogin(user.getEmail(), ip, userAgent, "FAILED", "Cuenta Google sin contraseña local");
+            return ResponseEntity.status(401).body(Map.of(
+                    "message",
+                    "Esta cuenta usa inicio de sesión con Google. Usa el botón «Iniciar sesión con Google» o define una contraseña desde «¿Olvidaste tu contraseña?»."
+            ));
         }
 
         if (!passwordEncoder.matches(password, user.getPassword())) {
@@ -450,7 +460,7 @@ public class AuthController {
         User user = userRepo.findByEmail(email).orElse(null);
         if (user == null) return ResponseEntity.badRequest().body(Map.of("message", "Usuario no encontrado."));
 
-        user.setPassword(passwordEncoder.encode(newPassword));
+        googleAuthService.aplicarPasswordTrasRecuperacion(user, newPassword);
         userRepo.save(user);
         vCode.setUsed(true);
         codeRepo.save(vCode);

@@ -33,6 +33,16 @@ public class CerebrasApiService {
     private String key4;
     @Value("${app.cerebras.quintakey:}")
     private String key5;
+    @Value("${app.cerebras.sextakey:}")
+    private String key6;
+    @Value("${app.cerebras.septimakey:}")
+    private String key7;
+    @Value("${app.cerebras.octavakey:}")
+    private String key8;
+    @Value("${app.cerebras.novenakey:}")
+    private String key9;
+    @Value("${app.cerebras.decimekey:}")
+    private String key10;
 
     public CerebrasApiService(ObjectMapper objectMapper) {
         this.objectMapper = objectMapper;
@@ -135,6 +145,11 @@ public class CerebrasApiService {
             case 3 -> key3;
             case 4 -> key4;
             case 5 -> key5;
+            case 6 -> key6;
+            case 7 -> key7;
+            case 8 -> key8;
+            case 9 -> key9;
+            case 10 -> key10;
             default -> key1;
         };
     }

@@ -44,4 +44,10 @@ public class User {
 
     @Column(name = "mfa_secret", length = 64)
     private String mfaSecret;
+
+    @Column(name = "google_sub", unique = true, length = 128)
+    private String googleSub;
+
+    @Column(name = "auth_provider", length = 16)
+    private String authProvider = "LOCAL";
 }
