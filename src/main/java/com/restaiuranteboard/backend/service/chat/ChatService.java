@@ -194,12 +194,22 @@ public class ChatService {
     private List<Map<String, Object>> construirMensajesLlm(ChatSession session, String systemPrompt) {
         List<Map<String, Object>> out = new ArrayList<>();
         out.add(Map.of("role", "system", "content", systemPrompt));
+        
         for (ChatMessageEntry m : session.getMessages()) {
             if ("SYSTEM".equals(m.getSender())) {
                 continue;
             }
             if ("USER".equals(m.getSender()) || "ASSISTANT".equals(m.getSender())) {
                 out.add(Map.of("role", m.getSender().toLowerCase(Locale.ROOT), "content", m.getContent() == null ? "" : m.getContent()));
+            } 
+            else if ("TOOL".equals(m.getSender()) && m.getToolCalls() != null && !m.getToolCalls().isEmpty()) {
+                StringBuilder memoria = new StringBuilder();
+                for (ChatToolCallEntry tc : m.getToolCalls()) {
+                    memoria.append("[Memoria interna - Usaste la herramienta '").append(tc.getName())
+                           .append("' con los argumentos: ").append(tc.getArgumentsJson())
+                           .append(". Resultado obtenido: ").append(tc.getResultJson()).append("]\n");
+                }
+                out.add(Map.of("role", "system", "content", memoria.toString().trim()));
             }
         }
         return out;
