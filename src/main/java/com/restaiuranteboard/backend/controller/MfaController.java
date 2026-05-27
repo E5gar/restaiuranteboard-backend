@@ -2,6 +2,8 @@ package com.restaiuranteboard.backend.controller;
 
 import com.restaiuranteboard.backend.model.sql.User;
 import com.restaiuranteboard.backend.repository.sql.UserRepository;
+import com.restaiuranteboard.backend.service.GoogleAuthService;
+import com.restaiuranteboard.backend.service.GoogleTokenVerifierService;
 import com.restaiuranteboard.backend.service.MfaService;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
@@ -18,10 +20,12 @@ public class MfaController {
 
     private final UserRepository userRepository;
     private final MfaService mfaService;
+    private final GoogleTokenVerifierService googleTokenVerifierService;
 
-    public MfaController(UserRepository userRepository, MfaService mfaService) {
+    public MfaController(UserRepository userRepository, MfaService mfaService, GoogleTokenVerifierService googleTokenVerifierService) {
         this.userRepository = userRepository;
         this.mfaService = mfaService;
+        this.googleTokenVerifierService = googleTokenVerifierService;
     }
 
     @GetMapping("/estado")
@@ -85,17 +89,55 @@ public class MfaController {
         if (user == null) {
             return ResponseEntity.status(HttpStatus.UNAUTHORIZED).body(Map.of("message", "No autorizado."));
         }
+        user = userRepository.findByEmail(user.getEmail()).orElse(user);
+        boolean tienePassword = user.getPassword() != null && !user.getPassword().isBlank();
+
         String password = body.get("password");
         String code = body.get("code");
-        if (password == null || password.isBlank()) {
-            return ResponseEntity.badRequest().body(Map.of("message", "La contraseña es obligatoria."));
+        String backupCode = body.get("backupCode");
+        String idToken = body.get("idToken");
+        String googleCode = body.get("googleCode");
+
+        if (tienePassword || !GoogleAuthService.esSoloGoogle(user)) {
+            if (password == null || password.isBlank()) {
+                return ResponseEntity.badRequest().body(Map.of("message", "La contraseña es obligatoria."));
+            }
+            if (code == null || code.isBlank()) {
+                return ResponseEntity.badRequest().body(Map.of("message", "El código del autenticador es obligatorio."));
+            }
+            try {
+                mfaService.desactivar(user, password, code);
+                return ResponseEntity.ok(Map.of(
+                        "message", "Autenticación de doble factor desactivada.",
+                        "mfaEnabled", false
+                ));
+            } catch (IllegalArgumentException e) {
+                return ResponseEntity.badRequest().body(Map.of("message", e.getMessage()));
+            } catch (IllegalStateException e) {
+                return ResponseEntity.badRequest().body(Map.of("message", e.getMessage()));
+            }
         }
-        if (code == null || code.isBlank()) {
-            return ResponseEntity.badRequest().body(Map.of("message", "El código del autenticador es obligatorio."));
+
+        if (!googleTokenVerifierService.isConfigured()) {
+            return ResponseEntity.status(HttpStatus.SERVICE_UNAVAILABLE).body(Map.of(
+                    "message",
+                    "Verificación con Google no está configurada."
+            ));
+        }
+        var profileOpt = googleTokenVerifierService.resolveProfile(idToken, googleCode);
+        if (profileOpt.isEmpty()) {
+            return ResponseEntity.status(HttpStatus.UNAUTHORIZED).body(Map.of("message", "No se pudo verificar la cuenta de Google."));
+        }
+        String email = profileOpt.get().email();
+        if (email == null || !email.equalsIgnoreCase(user.getEmail())) {
+            return ResponseEntity.status(HttpStatus.UNAUTHORIZED).body(Map.of("message", "La cuenta de Google no coincide con la sesión activa."));
+        }
+
+        if ((code == null || code.isBlank()) && (backupCode == null || backupCode.isBlank())) {
+            return ResponseEntity.badRequest().body(Map.of("message", "Ingresa el código de 6 dígitos o un código de respaldo."));
         }
         try {
-            user = userRepository.findByEmail(user.getEmail()).orElse(user);
-            mfaService.desactivar(user, password, code);
+            mfaService.desactivarSinPassword(user, code, backupCode);
             return ResponseEntity.ok(Map.of(
                     "message", "Autenticación de doble factor desactivada.",
                     "mfaEnabled", false

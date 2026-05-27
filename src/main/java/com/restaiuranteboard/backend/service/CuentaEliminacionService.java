@@ -57,6 +57,24 @@ public class CuentaEliminacionService {
         if (user.getPassword() == null || !passwordEncoder.matches(passwordPlano, user.getPassword())) {
             throw new IllegalArgumentException("La contraseña ingresada no es correcta.");
         }
+        eliminarCuentaClienteInterno(user);
+    }
+
+    @Transactional
+    public void eliminarCuentaClienteGoogle(User user) {
+        if (user == null || user.getId() == null) {
+            throw new IllegalArgumentException("No autorizado.");
+        }
+        if (user.isDeleted()) {
+            throw new IllegalArgumentException("La cuenta ya fue eliminada.");
+        }
+        if (user.getRole() == null || !"CLIENTE".equalsIgnoreCase(user.getRole().getName())) {
+            throw new IllegalArgumentException("Solo los clientes pueden eliminar su cuenta desde el perfil.");
+        }
+        eliminarCuentaClienteInterno(user);
+    }
+
+    private void eliminarCuentaClienteInterno(User user) {
         if (restaurantOrderRepository.existsByClient_IdAndStatusIn(user.getId(), ESTADOS_PEDIDO_ACTIVO)) {
             throw new IllegalStateException(
                     "No puedes eliminar tu cuenta mientras tengas pedidos en curso. "

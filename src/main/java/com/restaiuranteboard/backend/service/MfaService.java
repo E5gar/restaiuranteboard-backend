@@ -81,6 +81,26 @@ public class MfaService {
         backupCodeRepository.deleteByUserId(user.getId());
     }
 
+    @Transactional
+    public void desactivarSinPassword(User user, String code, String backupCode) {
+        if (!user.isMfaEnabled()) {
+            throw new IllegalStateException("La autenticación de doble factor no está activa.");
+        }
+        boolean ok = false;
+        if (code != null && !code.isBlank()) {
+            ok = totpMfaService.verifyCode(user.getMfaSecret(), code);
+        } else if (backupCode != null && !backupCode.isBlank()) {
+            ok = verificarCodigoRespaldo(user, backupCode);
+        }
+        if (!ok) {
+            throw new IllegalArgumentException("El código ingresado no es válido o ha expirado.");
+        }
+        user.setMfaEnabled(false);
+        user.setMfaSecret(null);
+        userRepository.save(user);
+        backupCodeRepository.deleteByUserId(user.getId());
+    }
+
     public boolean requiereMfa(User user) {
         return user != null && user.isMfaEnabled() && user.getMfaSecret() != null && !user.getMfaSecret().isBlank();
     }

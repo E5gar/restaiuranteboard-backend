@@ -7,6 +7,7 @@ import com.restaiuranteboard.backend.repository.sql.UserRepository;
 import com.restaiuranteboard.backend.repository.sql.VerificationCodeRepository;
 import com.restaiuranteboard.backend.service.CuentaEliminacionService;
 import com.restaiuranteboard.backend.service.EmailService;
+import com.restaiuranteboard.backend.service.GoogleTokenVerifierService;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc;
@@ -49,6 +50,9 @@ class PerfilControllerTest {
 
     @MockitoBean
     private CuentaEliminacionService cuentaEliminacionService;
+
+    @MockitoBean
+    private GoogleTokenVerifierService googleTokenVerifierService;
 
     @Test
     void eliminarCuenta_returns401WithoutAuthenticatedUser() throws Exception {

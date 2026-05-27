@@ -10,6 +10,8 @@ import com.restaiuranteboard.backend.repository.sql.VerificationCodeRepository;
 import com.restaiuranteboard.backend.exception.EmailDispatchException;
 import com.restaiuranteboard.backend.service.CuentaEliminacionService;
 import com.restaiuranteboard.backend.service.EmailService;
+import com.restaiuranteboard.backend.service.GoogleAuthService;
+import com.restaiuranteboard.backend.service.GoogleTokenVerifierService;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.context.SecurityContextHolder;
@@ -36,6 +38,7 @@ public class PerfilController {
     private final VerificationCodeRepository verificationCodeRepository;
     private final EmailService emailService;
     private final CuentaEliminacionService cuentaEliminacionService;
+    private final GoogleTokenVerifierService googleTokenVerifierService;
 
     public PerfilController(
             UserRepository userRepository,
@@ -43,7 +46,8 @@ public class PerfilController {
             ConfiguracionSistemaRepository configuracionSistemaRepository,
             VerificationCodeRepository verificationCodeRepository,
             EmailService emailService,
-            CuentaEliminacionService cuentaEliminacionService
+            CuentaEliminacionService cuentaEliminacionService,
+            GoogleTokenVerifierService googleTokenVerifierService
     ) {
         this.userRepository = userRepository;
         this.restaurantOrderRepository = restaurantOrderRepository;
@@ -51,6 +55,7 @@ public class PerfilController {
         this.verificationCodeRepository = verificationCodeRepository;
         this.emailService = emailService;
         this.cuentaEliminacionService = cuentaEliminacionService;
+        this.googleTokenVerifierService = googleTokenVerifierService;
     }
 
     @GetMapping("/me")
@@ -160,6 +165,24 @@ public class PerfilController {
         if (user == null) {
             return ResponseEntity.status(HttpStatus.UNAUTHORIZED).body(Map.of("message", "No autorizado."));
         }
+        user = userRepository.findByEmail(user.getEmail()).orElse(user);
+        boolean tienePassword = user.getPassword() != null && !user.getPassword().isBlank();
+
+        if (!tienePassword && GoogleAuthService.esSoloGoogle(user)) {
+            ResponseEntity<?> reauth = verificarIdentidadGoogle(user, body);
+            if (reauth != null) {
+                return reauth;
+            }
+            try {
+                cuentaEliminacionService.eliminarCuentaClienteGoogle(user);
+                return ResponseEntity.ok(Map.of("message", "Cuenta eliminada correctamente."));
+            } catch (IllegalStateException e) {
+                return ResponseEntity.status(HttpStatus.CONFLICT).body(Map.of("message", e.getMessage()));
+            } catch (IllegalArgumentException e) {
+                return ResponseEntity.badRequest().body(Map.of("message", e.getMessage()));
+            }
+        }
+
         String password = body.get("password") == null ? "" : String.valueOf(body.get("password"));
         try {
             cuentaEliminacionService.eliminarCuentaCliente(user, password);
@@ -171,8 +194,23 @@ public class PerfilController {
         }
     }
 
+    @PostMapping("/me/google/verificar-identidad")
+    public ResponseEntity<?> verificarIdentidadGoogleEndpoint(@RequestBody Map<String, Object> body) {
+        User user = obtenerUsuarioAutenticado();
+        if (user == null) {
+            return ResponseEntity.status(HttpStatus.UNAUTHORIZED).body(Map.of("message", "No autorizado."));
+        }
+        user = userRepository.findByEmail(user.getEmail()).orElse(user);
+        ResponseEntity<?> reauth = verificarIdentidadGoogle(user, body);
+        if (reauth != null) {
+            return reauth;
+        }
+        return ResponseEntity.ok(Map.of("verified", true));
+    }
+
     private Map<String, Object> buildPerfilResponse(User user) {
         boolean canEditAddress = !bloquearEdicionDireccionCliente(user);
+        boolean hasLocalPassword = user.getPassword() != null && !user.getPassword().isBlank();
         Map<String, Object> out = new LinkedHashMap<>();
         out.put("userId", user.getId() == null ? null : user.getId().toString());
         out.put("fullName", user.getFullName());
@@ -183,7 +221,28 @@ public class PerfilController {
         out.put("role", user.getRole() == null ? null : user.getRole().getName());
         out.put("canEditAddress", canEditAddress);
         out.put("mfaEnabled", user.isMfaEnabled());
+        out.put("hasLocalPassword", hasLocalPassword);
         return out;
+    }
+
+    private ResponseEntity<?> verificarIdentidadGoogle(User user, Map<String, Object> body) {
+        if (!googleTokenVerifierService.isConfigured()) {
+            return ResponseEntity.status(HttpStatus.SERVICE_UNAVAILABLE).body(Map.of(
+                    "message",
+                    "Verificación con Google no está configurada."
+            ));
+        }
+        String idToken = body.get("idToken") == null ? null : String.valueOf(body.get("idToken"));
+        String googleCode = body.get("googleCode") == null ? null : String.valueOf(body.get("googleCode"));
+        var profileOpt = googleTokenVerifierService.resolveProfile(idToken, googleCode);
+        if (profileOpt.isEmpty()) {
+            return ResponseEntity.status(HttpStatus.UNAUTHORIZED).body(Map.of("message", "No se pudo verificar la cuenta de Google."));
+        }
+        String email = profileOpt.get().email();
+        if (email == null || !email.equalsIgnoreCase(user.getEmail())) {
+            return ResponseEntity.status(HttpStatus.UNAUTHORIZED).body(Map.of("message", "La cuenta de Google no coincide con la sesión activa."));
+        }
+        return null;
     }
 
     private User obtenerUsuarioAutenticado() {
