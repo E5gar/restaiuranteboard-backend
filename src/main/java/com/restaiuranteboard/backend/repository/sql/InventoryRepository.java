@@ -19,6 +19,6 @@ public interface InventoryRepository extends JpaRepository<Inventory, Integer> {
 
     Optional<Inventory> findByIdAndIsDeletedFalse(Integer id);
 
-    @Query("SELECT i.id, i.name, i.stockQuantity, i.price, i.category FROM Inventory i WHERE i.isDeleted = false")
+    @Query("SELECT i.id, i.name, i.stockQuantity, i.price, i.category, i.alertThreshold FROM Inventory i WHERE i.isDeleted = false")
     List<Object[]> findAllStockProjection();
 }

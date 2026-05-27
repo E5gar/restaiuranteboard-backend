@@ -259,10 +259,11 @@ public class AdminDashboardService {
             double stock = row[2] != null ? ((Number) row[2]).doubleValue() : 0;
             double price = row[3] != null ? ((Number) row[3]).doubleValue() : 0;
             String category = row[4] != null ? String.valueOf(row[4]) : "";
+            double umbral = row.length > 5 && row[5] != null ? ((Number) row[5]).doubleValue() : 10.0;
             if (catFilter != null && (category.isBlank() || !category.equalsIgnoreCase(catFilter))) {
                 continue;
             }
-            inv.add(new InvProj(id, name, stock, price, category));
+            inv.add(new InvProj(id, name, stock, price, category, umbral));
         }
 
         BigDecimal valorInventario = BigDecimal.ZERO;
@@ -271,20 +272,26 @@ public class AdminDashboardService {
         for (InvProj i : inv) {
             BigDecimal val = BigDecimal.valueOf(i.stock).multiply(BigDecimal.valueOf(i.price)).setScale(2, RoundingMode.HALF_UP);
             valorInventario = valorInventario.add(val);
-            if (i.stock < umbralStockBajo) {
+            if (i.stock < i.umbral) {
                 stockBajo++;
             }
             stockPorInsumo.add(row(
                     "id", i.id,
                     "nombre", i.name,
                     "stock", i.stock,
-                    "umbral", umbralStockBajo,
+                    "umbral", i.umbral,
                     "categoria", i.category,
                     "valor", val.doubleValue()
             ));
         }
         if (soloStockBajo) {
-            stockPorInsumo = stockPorInsumo.stream().filter(m -> (Double) m.get("stock") < umbralStockBajo).toList();
+            stockPorInsumo = stockPorInsumo.stream()
+                    .filter(m -> {
+                        double s = (Double) m.get("stock");
+                        double u = (Double) m.get("umbral");
+                        return s < u;
+                    })
+                    .toList();
         }
 
         BigDecimal costoSalida = movementRepository.sumCostoSalida(from, toExclusive, tipoNorm);
@@ -966,7 +973,7 @@ public class AdminDashboardService {
         return Math.round(v * 100.0) / 100.0;
     }
 
-    private record InvProj(int id, String name, double stock, double price, String category) {
+    private record InvProj(int id, String name, double stock, double price, String category, double umbral) {
     }
 
     @Transactional(readOnly = true)

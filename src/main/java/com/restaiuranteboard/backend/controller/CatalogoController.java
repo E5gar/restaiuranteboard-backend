@@ -155,6 +155,7 @@ public class CatalogoController {
         item.setUnit(req.getUnit());
         item.setStockQuantity(req.getStockQuantity());
         item.setPrice(req.getPrice());
+        item.setAlertThreshold(req.getAlertThreshold());
         item.setImageBase64(req.getImageBase64());
 
         ResponseEntity<?> err = validarInventario(item);
@@ -192,11 +193,37 @@ public class CatalogoController {
         existente.setUnit(unidadNueva);
         existente.setStockQuantity(item.getStockQuantity());
         existente.setPrice(item.getPrice());
+        if (item.getAlertThreshold() != null) {
+            existente.setAlertThreshold(item.getAlertThreshold());
+        }
         existente.setImageBase64(item.getImageBase64());
         inventorySqlRepo.save(existente);
         messagingTemplate.convertAndSend("/topic/catalogo", "ingrediente_actualizado");
 
         return ResponseEntity.ok(Map.of("message", "Insumo actualizado."));
+    }
+
+    @PatchMapping("/ingredientes/{id}/umbral")
+    @Transactional
+    public ResponseEntity<?> actualizarUmbralIngrediente(@PathVariable Integer id, @RequestBody Map<String, Object> body) {
+        Inventory existente = inventorySqlRepo.findById(id).orElse(null);
+        if (existente == null || existente.isDeleted()) {
+            return ResponseEntity.badRequest().body(Map.of("message", "Insumo no encontrado."));
+        }
+        Object uObj = body.get("alertThreshold");
+        if (uObj == null) {
+            return ResponseEntity.badRequest().body(Map.of("message", "El umbral es obligatorio."));
+        }
+        Double umbral = toNonNegativeDouble(uObj);
+        if (umbral == null) {
+            return ResponseEntity.badRequest().body(Map.of("message", "Umbral inválido. No uses notación científica (e)."));
+        }
+        ResponseEntity<?> uErr = validarUmbral(umbral, existente.getUnit());
+        if (uErr != null) return uErr;
+        existente.setAlertThreshold(umbral);
+        inventorySqlRepo.save(existente);
+        messagingTemplate.convertAndSend("/topic/catalogo", "ingrediente_actualizado");
+        return ResponseEntity.ok(Map.of("message", "Umbral actualizado.", "alertThreshold", umbral));
     }
 
     @GetMapping("/productos/{id}/edicion")
@@ -556,6 +583,12 @@ public class CatalogoController {
         ResponseEntity<?> stockErr = validarStockOCosto(item.getStockQuantity(), item.getUnit(), true);
         if (stockErr != null) return stockErr;
 
+        if (item.getAlertThreshold() == null) {
+            item.setAlertThreshold(10.0);
+        }
+        ResponseEntity<?> umbralErr = validarUmbral(item.getAlertThreshold(), item.getUnit());
+        if (umbralErr != null) return umbralErr;
+
         if (item.getPrice() == null) {
             return ResponseEntity.badRequest().body(Map.of("message", "El costo unitario es obligatorio."));
         }
@@ -568,6 +601,23 @@ public class CatalogoController {
         }
         item.setImageBase64(foto);
 
+        return null;
+    }
+
+    private ResponseEntity<?> validarUmbral(Double value, String unit) {
+        if (value == null) {
+            return ResponseEntity.badRequest().body(Map.of("message", "El umbral de alerta es obligatorio."));
+        }
+        if (value < 0 || Double.isNaN(value) || Double.isInfinite(value)) {
+            return ResponseEntity.badRequest().body(Map.of("message", "El umbral de alerta no puede ser negativo."));
+        }
+        ResponseEntity<?> base = validarNoNegativoMax2Dec(value, "El umbral de alerta");
+        if (base != null) return base;
+        if ("UNIDADES".equalsIgnoreCase(unit)) {
+            if (!esEntero(value)) {
+                return ResponseEntity.badRequest().body(Map.of("message", "Con unidad Unidades el umbral no puede tener decimales."));
+            }
+        }
         return null;
     }
 

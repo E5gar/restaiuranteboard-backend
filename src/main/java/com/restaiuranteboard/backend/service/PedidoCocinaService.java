@@ -181,6 +181,11 @@ public class PedidoCocinaService {
 
     private void descontarStock(List<OrderItem> lines, UUID orderId) {
         Map<Integer, Double> requerido = calcularRequerido(lines);
+        ConfiguracionSistema cfg = configRepository.findById("GLOBAL_CONFIG").orElse(null);
+        String em = cfg != null ? cfg.getEmailSmtp() : null;
+        String pw = cfg != null ? cfg.getPasswordSmtp() : null;
+        String negocio = cfg != null ? nombreNegocio(cfg) : "Restaiuranteboard";
+        List<User> admins = userRepository.findByRole_NameAndIsDeletedFalse("ADMIN");
         for (Map.Entry<Integer, Double> e : requerido.entrySet()) {
             Inventory ing = inventoryRepository.findByIdAndIsDeletedFalse(e.getKey()).orElseThrow(
                     () -> new IllegalArgumentException("Falta un insumo de la receta."));
@@ -189,6 +194,7 @@ public class PedidoCocinaService {
             if (after < -1e-9) {
                 throw new IllegalArgumentException("Stock insuficiente para " + (ing.getName() == null ? "insumo" : ing.getName()) + ".");
             }
+            double umbral = ing.getAlertThreshold() == null ? 10.0 : ing.getAlertThreshold();
             ing.setStockQuantity(Math.max(0.0, after));
             inventoryRepository.save(ing);
 
@@ -202,6 +208,47 @@ public class PedidoCocinaService {
             mov.setReason("Orden en cocina " + orderId);
             mov.setCreatedAt(LocalDateTime.now());
             movementRepository.save(mov);
+
+            if (em != null && !em.isBlank() && pw != null && !pw.isBlank()) {
+                boolean cruzo = before + 1e-9 >= umbral && after + 1e-9 < umbral;
+                if (cruzo) {
+                    enviarCorreoStockBajo(admins, ing, Math.max(0.0, after), umbral, em, pw, negocio);
+                }
+            }
+        }
+    }
+
+    private void enviarCorreoStockBajo(
+            List<User> admins,
+            Inventory ing,
+            double stockActual,
+            double umbral,
+            String smtpEmail,
+            String smtpPassword,
+            String nombreNegocio
+    ) {
+        if (admins == null || admins.isEmpty()) {
+            return;
+        }
+        String nombre = ing.getName() != null ? ing.getName().trim() : "Insumo";
+        String categoria = ing.getCategory() != null ? ing.getCategory().trim() : "";
+        String asunto = "[Alerta de Stock Bajo] Reabastecer: " + nombre + " - " + nombreNegocio;
+        String cuerpo = "Insumo afectado: " + nombre + "\n"
+                + "Categoría: " + categoria + "\n\n"
+                + "Estado del inventario:\n"
+                + "Stock actual: " + BigDecimal.valueOf(stockActual).setScale(2, RoundingMode.HALF_UP).toPlainString() + "\n"
+                + "Umbral crítico: " + BigDecimal.valueOf(umbral).setScale(2, RoundingMode.HALF_UP).toPlainString() + "\n";
+        for (User a : admins) {
+            if (a.getEmail() != null && !a.getEmail().isBlank()) {
+                emailService.enviarCorreoTextoPlano(
+                        a.getEmail(),
+                        asunto,
+                        cuerpo,
+                        smtpEmail,
+                        smtpPassword,
+                        a.getId() != null ? a.getId().toString() : null
+                );
+            }
         }
     }
 

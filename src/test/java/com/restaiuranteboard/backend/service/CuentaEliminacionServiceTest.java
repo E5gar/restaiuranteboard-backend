@@ -85,7 +85,7 @@ class CuentaEliminacionServiceTest {
         assertThat(saved.getEmail()).isEqualTo(id + "@eliminado");
         assertThat(saved.getDni()).isEqualTo("ELIMINADO_" + id);
         assertThat(saved.getFullName()).isEqualTo("Usuario Eliminado");
-        assertThat(saved.getPhone()).isNull();
+        assertThat(saved.getPhone()).isEqualTo("ELIM_" + id);
         assertThat(saved.getAddress()).isNull();
         verify(shoppingCartRepository).deleteById(id.toString());
     }

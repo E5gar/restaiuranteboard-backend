@@ -9,6 +9,7 @@ public class ActualizarIngredienteRequest {
     private String unit;
     private Double stockQuantity;
     private Double price;
+    private Double alertThreshold;
     private String imageBase64;
     private Boolean confirmarCambioUnidad;
 }

@@ -17,6 +17,9 @@ public class Inventory {
     
     private String category;
     private Double price;
+
+    @Column(name = "alert_threshold")
+    private Double alertThreshold = 10.0;
     
     @Column(columnDefinition = "TEXT", name = "image_base64")
     private String imageBase64;
