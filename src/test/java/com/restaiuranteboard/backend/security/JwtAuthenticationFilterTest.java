@@ -14,6 +14,9 @@ import org.springframework.mock.web.MockHttpServletRequest;
 import org.springframework.mock.web.MockHttpServletResponse;
 import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
 import org.springframework.security.core.context.SecurityContextHolder;
+import com.restaiuranteboard.backend.repository.sql.UserRepository;
+import com.restaiuranteboard.backend.model.sql.User;
+import java.util.Optional;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.anyString;
@@ -26,6 +29,9 @@ class JwtAuthenticationFilterTest {
 
     @Mock
     private JwtService jwtService;
+
+    @Mock
+    private UserRepository userRepository;
 
     @InjectMocks
     private JwtAuthenticationFilter filter;
@@ -47,6 +53,10 @@ class JwtAuthenticationFilterTest {
         when(claims.getSubject()).thenReturn("user@test.com");
         when(claims.getOrDefault("role", "")).thenReturn("CLIENTE");
         when(jwtService.parseClaims("valid-token")).thenReturn(claims);
+        User user = new User();
+        user.setEmail("user@test.com");
+        user.setDeleted(false);
+        when(userRepository.findByEmail("user@test.com")).thenReturn(Optional.of(user));
 
         filter.doFilterInternal(request, response, chain);
 

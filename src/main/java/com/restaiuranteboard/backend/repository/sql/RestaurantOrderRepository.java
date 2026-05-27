@@ -22,6 +22,8 @@ public interface RestaurantOrderRepository extends JpaRepository<RestaurantOrder
 
     List<RestaurantOrder> findByClient_IdAndStatusNotInOrderByCreatedAtDesc(UUID clientId, Collection<String> statuses);
 
+    boolean existsByDeliveryPerson_IdAndStatusIn(UUID deliveryPersonId, Collection<String> statuses);
+
     List<RestaurantOrder> findByClient_IdOrderByCreatedAtDesc(UUID clientId);
     boolean existsByClient_IdAndStatusIn(UUID clientId, Collection<String> statuses);
 

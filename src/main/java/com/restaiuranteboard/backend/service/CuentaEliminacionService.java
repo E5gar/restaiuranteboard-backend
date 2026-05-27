@@ -88,7 +88,7 @@ public class CuentaEliminacionService {
         user.setDeleted(true);
         user.setEmail(idStr + "@eliminado");
         user.setDni("ELIMINADO_" + idStr);
-        user.setPhone(null);
+        user.setPhone("ELIM_" + idStr);
         user.setFullName("Usuario Eliminado");
         user.setAddress(null);
         user.setPassword(passwordEncoder.encode(UUID.randomUUID().toString()));
