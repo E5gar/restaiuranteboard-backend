@@ -92,6 +92,8 @@ public class CuentaEliminacionService {
         user.setFullName("Usuario Eliminado");
         user.setAddress(null);
         user.setPassword(passwordEncoder.encode(UUID.randomUUID().toString()));
+        user.setGoogleSub(null);
+        user.setAuthProvider("LOCAL");
         userRepository.save(user);
 
         shoppingCartRepository.deleteById(idStr);

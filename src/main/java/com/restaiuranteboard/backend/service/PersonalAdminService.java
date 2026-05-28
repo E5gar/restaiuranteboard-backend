@@ -101,6 +101,8 @@ public class PersonalAdminService {
         }
 
         empleado.setPassword(passwordEncoder.encode(UUID.randomUUID().toString()));
+        empleado.setGoogleSub(null);
+        empleado.setAuthProvider("LOCAL");
         userRepository.save(empleado);
     }
 }
