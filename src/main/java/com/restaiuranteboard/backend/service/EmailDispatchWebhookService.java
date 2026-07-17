@@ -5,6 +5,8 @@ import com.restaiuranteboard.backend.repository.nosql.ConfiguracionSistemaReposi
 import com.restaiuranteboard.backend.repository.nosql.EmailDispatchLogRepository;
 import com.restaiuranteboard.backend.model.nosql.EmailDispatchLog;
 import com.restaiuranteboard.backend.repository.sql.UserRepository;
+import com.restaiuranteboard.backend.service.chat.ChatToolExecutorService;
+
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
@@ -68,13 +70,15 @@ public class EmailDispatchWebhookService {
         if (opt.isEmpty()) {
             return;
         }
-        EmailDispatchLog log = opt.get();
-        log.setStatus(status);
-        log.setSmtpCode(smtpCode);
-        log.setErrorDetail(errorDetail);
-        log.setUpdatedAt(Instant.now());
-        logRepository.save(log);
+        EmailDispatchLog dispatchLog = opt.get();
+        dispatchLog.setStatus(status);
+        dispatchLog.setSmtpCode(smtpCode);
+        dispatchLog.setErrorDetail(errorDetail);
+        dispatchLog.setUpdatedAt(Instant.now());
+        logRepository.save(dispatchLog);
         EmailDispatchWebhookService.log.info("Email callback {} status={} smtpCode={}", trackingId, status, smtpCode);
+
+        log.info("Email callback {} status={} smtpCode={}", trackingId, status, smtpCode);
 
         if ("SUCCESS".equalsIgnoreCase(status)) {
             configRepository.findById("GLOBAL_CONFIG").ifPresent(cfg -> {
@@ -91,22 +95,23 @@ public class EmailDispatchWebhookService {
             });
         }
 
-        if ("FAILED_RECIPIENT".equalsIgnoreCase(status) && log.getToEmail() != null) {
-            userRepository.findByEmailIgnoreCase(log.getToEmail().trim()).ifPresent(u -> {
+        if ("FAILED_RECIPIENT".equalsIgnoreCase(status) && dispatchLog.getToEmail() != null) {
+            userRepository.findByEmailIgnoreCase(dispatchLog.getToEmail().trim()).ifPresent(u -> {
                 u.setEmailBounced(true);
                 userRepository.save(u);
             });
         }
 
-        if (log.getNotifyUserId() != null && !log.getNotifyUserId().isBlank()) {
+        if (dispatchLog.getNotifyUserId() != null && !dispatchLog.getNotifyUserId().isBlank()) {
             try {
                 Map<String, Object> msg = new HashMap<>();
-                msg.put("userId", log.getNotifyUserId());
+                msg.put("userId", dispatchLog.getNotifyUserId());
                 msg.put("kind", "email_dispatch_failed");
                 msg.put("message", "No ha sido posible enviar el correo.");
                 msg.put("status", status);
                 messagingTemplate.convertAndSend("/topic/auth/status", objectMapper.writeValueAsString(msg));
             } catch (Exception ignored) {
+                log.trace("Error ignorado", ignored);
             }
         }
     }

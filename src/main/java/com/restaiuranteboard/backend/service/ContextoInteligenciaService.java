@@ -1,10 +1,12 @@
 package com.restaiuranteboard.backend.service;
 
+import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
 import org.springframework.web.client.RestTemplate;
 import java.time.DayOfWeek;
 import java.time.LocalDateTime;
 import java.util.Map;
+import org.slf4j.Logger;
 
 @Service
 public class ContextoInteligenciaService {
@@ -15,6 +17,8 @@ public class ContextoInteligenciaService {
             String day,
             String segment
     ) {}
+
+    private static final Logger log = LoggerFactory.getLogger(ContextoInteligenciaService.class);
 
     private static final String OPEN_METEO_URL =
             "https://api.open-meteo.com/v1/forecast?latitude=-12.0686&longitude=-75.2102&current_weather=true";
@@ -39,7 +43,7 @@ public class ContextoInteligenciaService {
                 condition = mapWeatherCode(weatherCode);
             }
         } catch (Exception e) {
-            System.err.println("Error consultando clima: " + e.getMessage());
+            log.error("Error consultando clima: {}", e.getMessage());
         }
 
         return new ContextoInteligencia(

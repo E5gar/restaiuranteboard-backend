@@ -8,18 +8,23 @@ import com.restaiuranteboard.backend.model.sql.User;
 import com.restaiuranteboard.backend.repository.nosql.ProductoRepository;
 import com.restaiuranteboard.backend.repository.nosql.ShoppingCartRepository;
 import com.restaiuranteboard.backend.repository.sql.UserRepository;
+import com.restaiuranteboard.backend.service.chat.ChatToolExecutorService;
 import com.restaiuranteboard.backend.util.UsuarioCompradorValidator;
+
+import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 
 import java.util.*;
 import java.util.stream.Collectors;
+import org.slf4j.Logger;
 
 @Service
 public class ShoppingCartService {
 
     private static final int MAX_QTY = 10;
     private static final double EPS = 0.015;
+    private static final Logger log = LoggerFactory.getLogger(ShoppingCartService.class);
 
     @Autowired
     private ShoppingCartRepository shoppingCartRepository;
@@ -262,6 +267,7 @@ public class ShoppingCartService {
         try {
             userInteractionService.registrar(userId, productId, action, dwellTimeSeconds);
         } catch (Exception ignored) {
+            log.trace("Error ignorado", ignored);
         }
     }
 }

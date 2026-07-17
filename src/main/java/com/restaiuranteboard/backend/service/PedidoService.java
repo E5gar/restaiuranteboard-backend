@@ -11,8 +11,10 @@ import com.restaiuranteboard.backend.repository.nosql.ShoppingCartRepository;
 import com.restaiuranteboard.backend.repository.sql.OrderItemRepository;
 import com.restaiuranteboard.backend.repository.sql.RestaurantOrderRepository;
 import com.restaiuranteboard.backend.repository.sql.UserRepository;
+import com.restaiuranteboard.backend.service.chat.ChatToolExecutorService;
 import com.restaiuranteboard.backend.util.UsuarioCompradorValidator;
 import org.springframework.messaging.simp.SimpMessagingTemplate;
+import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -21,9 +23,12 @@ import java.math.BigDecimal;
 import java.math.RoundingMode;
 import java.util.*;
 
+import org.slf4j.Logger;
+
 @Service
 public class PedidoService {
 
+    private static final Logger log = LoggerFactory.getLogger(PedidoService.class);
     private static final long MAX_BYTES_COMPROBANTE = 3L * 1024 * 1024;
 
     @Autowired
@@ -150,6 +155,7 @@ public class PedidoService {
             try {
                 userInteractionService.registrar(userId, line.getProductId(), action, null);
             } catch (Exception ignored) {
+                log.trace("Error ignorado", ignored);
             }
         }
     }

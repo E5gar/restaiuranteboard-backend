@@ -4,6 +4,9 @@ import com.restaiuranteboard.backend.model.nosql.BackupAutomatizacion;
 import com.restaiuranteboard.backend.model.nosql.ConfiguracionSistema;
 import com.restaiuranteboard.backend.repository.nosql.BackupAutomatizacionRepository;
 import com.restaiuranteboard.backend.repository.nosql.ConfiguracionSistemaRepository;
+import com.restaiuranteboard.backend.service.chat.ChatToolExecutorService;
+
+import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 
@@ -21,10 +24,12 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Optional;
+import org.slf4j.Logger;
 
 @Service
 public class BackupAutomatizacionService {
-
+    
+    private static final Logger log = LoggerFactory.getLogger(BackupAutomatizacionService.class);
     private static final ZoneId ZONE = ZoneId.of("America/Lima");
     private static final List<String> FREQ = List.of("DAILY", "WEEKLY", "MONTHLY");
     private static final Locale ES = Locale.forLanguageTag("es-PE");
@@ -314,6 +319,7 @@ public class BackupAutomatizacionService {
         try {
             emailService.enviarCorreoTextoPlano(em, asunto, body.toString(), em, pw, null);
         } catch (Exception ignored) {
+            log.trace("Error ignorado", ignored);
         }
     }
 }

@@ -4,6 +4,7 @@ import com.restaiuranteboard.backend.dto.ActualizarIngredienteRequest;
 import com.restaiuranteboard.backend.dto.ProductoRequest;
 import com.restaiuranteboard.backend.model.nosql.Producto;
 import com.restaiuranteboard.backend.service.AiModelService;
+import com.restaiuranteboard.backend.service.chat.ChatToolExecutorService;
 import com.restaiuranteboard.backend.model.sql.Inventory;
 import com.restaiuranteboard.backend.model.sql.InventoryMovement;
 import com.restaiuranteboard.backend.model.sql.Recipe;
@@ -17,6 +18,8 @@ import org.springframework.messaging.simp.SimpMessagingTemplate;
 import org.springframework.http.ResponseEntity;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.bind.annotation.*;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import java.math.BigDecimal;
 import java.math.RoundingMode;
@@ -32,6 +35,8 @@ import java.util.Set;
 @RestController
 @RequestMapping("/api/catalogo")
 public class CatalogoController {
+
+    private static final Logger log = LoggerFactory.getLogger(CatalogoController.class);
 
     private static final Set<String> CATEGORIAS_PRODUCTO = Set.of(
             "Entrada", "Plato Principal", "Postres", "Bebidas"
@@ -434,6 +439,7 @@ public class CatalogoController {
                 try {
                     productoMongoRepo.deleteById(guardado.getId());
                 } catch (Exception ignored) {
+                    log.trace("Error ignorado", ignored);
                 }
             }
             return ResponseEntity.badRequest().body(Map.of("message", e.getMessage()));
@@ -442,6 +448,7 @@ public class CatalogoController {
                 try {
                     productoMongoRepo.deleteById(guardado.getId());
                 } catch (Exception ignored) {
+                    log.trace("Error ignorado", ignored);
                 }
             }
             return ResponseEntity.internalServerError().body(Map.of("message", "Error: " + e.getMessage()));

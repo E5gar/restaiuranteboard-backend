@@ -24,10 +24,13 @@ import java.time.LocalDateTime;
 import java.time.LocalTime;
 import java.util.*;
 import java.util.stream.Collectors;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 @Service
 public class ChatToolExecutorService {
 
+    private static final Logger log = LoggerFactory.getLogger(ChatToolExecutorService.class);
     private static final int MAX_QTY = 10;
 
     private final ObjectMapper objectMapper;
@@ -215,12 +218,14 @@ public class ChatToolExecutorService {
             try {
                 ini = LocalDate.parse(fi);
             } catch (Exception ignored) {
+                log.trace("Error ignorado", ignored);
             }
         }
         if (!ff.isBlank()) {
             try {
                 fin = LocalDate.parse(ff);
             } catch (Exception ignored) {
+                log.trace("Error ignorado", ignored);
             }
         }
         LocalDateTime from = ini.atStartOfDay();
