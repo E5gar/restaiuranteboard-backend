@@ -1,0 +1,36 @@
+name: Backend CI/CD (Test & Deploy)
+
+on:
+  push:
+    branches: [ main ]
+
+jobs:
+  test-and-deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Descargar código
+        uses: actions/checkout@v4
+
+      - name: Configurar Java 17
+        uses: actions/setup-java@v4
+        with:
+          java-version: '17'
+          distribution: 'temurin'
+          cache: 'maven'
+
+      - name: Dar permisos de ejecución a Maven
+        run: chmod +x mvnw
+
+      - name: Ejecutar Pruebas Unitarias
+        run: ./mvnw test "-Dsurefire.excludes=**/integration/**"
+
+      - name: Ejecutar Pruebas de Integración
+        run: ./mvnw test "-Dtest=com.restaiuranteboard.backend.integration.**"
+
+      - name: Desplegar en Render
+        if: success()
+        env:
+          DEPLOY_HOOK: ${{ secrets.RENDER_DEPLOY_HOOK }}
+        run: |
+          echo "Pruebas de Backend exitosas. Lanzando despliegue..."
+          curl -X POST "$DEPLOY_HOOK"
