@@ -27,6 +27,15 @@ jobs:
       - name: Ejecutar Pruebas de Integración
         run: ./mvnw test "-Dtest=com.restaiuranteboard.backend.integration.**"
 
+      - name: Analizar dependencias con Trivy
+        uses: aquasecurity/trivy-action@master
+        with:
+          scan-type: 'fs'
+          scan-ref: '.'
+          format: 'table'
+          exit-code: '1'
+          severity: 'CRITICAL'
+
       - name: Desplegar en Render
         if: success()
         env:
