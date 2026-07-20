@@ -4,7 +4,7 @@ COPY . .
 RUN mvn clean package -DskipTests
 
 # Ejecución
-FROM openjdk:17.0.1-jdk-slim
+FROM openjdk:18.0.2-jdk-slim
 
 # No Prompts Interactivos
 ENV DEBIAN_FRONTEND=noninteractive
